@@ -173,7 +173,7 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     url: 'https://chat.deepseek.com',
     categoryId: 'cat-ai',
     description: '深度求索通用大模型与推理引擎',
-    icon: 'https://chat.deepseek.com/favicon.svg',
+    icon: 'https://www.deepseek.com/favicon.ico',
     pinned: true,
     clicks: 0,
     createdAt: 1700000012000,

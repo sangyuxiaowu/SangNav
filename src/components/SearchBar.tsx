@@ -230,7 +230,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
         </form>
 
         {/* Floating Dropdown: History & Instant Bookmark Matches */}
-        {isFocused && (query.trim() || history.length > 0) && (
+        {isFocused && (matchingBookmarks.length > 0 || (!query.trim() && history.length > 0)) && (
           <div className="absolute top-full left-0 right-0 mt-2 p-2 rounded-2xl bg-theme-elevated border border-theme-default shadow-theme-lg backdrop-blur-xl z-40 text-xs space-y-2 animate-in fade-in slide-in-from-top-2 duration-150">
             {/* Matching Bookmarks */}
             {matchingBookmarks.length > 0 && (

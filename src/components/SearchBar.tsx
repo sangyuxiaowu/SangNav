@@ -37,7 +37,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   const [history, setHistory] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('novanav_search_history');
-      return saved ? JSON.parse(saved) : ['React', 'Tailwind CSS', 'Vite', 'TypeScript'];
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }

@@ -139,7 +139,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
                 type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="例如: https://github.com 或 juejin.cn"
+                placeholder="例如: https://github.com、juejin.cn 或 edge://inspect/#devices"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-theme-base border border-theme-default focus:border-blue-500 focus:outline-none text-theme-primary placeholder-theme-muted font-mono text-xs shadow-xs"
                 required
               />

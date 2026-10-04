@@ -7,8 +7,7 @@ import {
   MoreVertical, 
   Edit, 
   Trash2, 
-  Copy, 
-  Check, 
+  GripVertical,
   Plus, 
   Layers 
 } from 'lucide-react';
@@ -24,6 +23,7 @@ interface LinkGridProps {
   onEditLink: (link: NavLinkItem) => void;
   onDeleteLink: (id: string) => void;
   onTogglePin: (link: NavLinkItem) => void;
+  onReorderLinks: (linkIds: string[]) => void;
   onAddNewLink: (categoryId?: string) => void;
   searchFilterQuery?: string;
 }
@@ -38,17 +38,11 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
   onEditLink,
   onDeleteLink,
   onTogglePin,
+  onReorderLinks,
   onAddNewLink,
   searchFilterQuery = '',
 }) => {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const handleCopy = (link: NavLinkItem, e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(link.url);
-    setCopiedId(link.id);
-    setTimeout(() => setCopiedId(null), 1500);
-  };
+  const [draggedLinkId, setDraggedLinkId] = useState<string | null>(null);
 
   const getGridColsClass = () => {
     switch (columnsCount) {
@@ -107,19 +101,49 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
   }
 
   // Render a single card
-  const renderCard = (link: NavLinkItem) => {
+  const renderCard = (link: NavLinkItem, sortableLinks: NavLinkItem[]) => {
     const favicon = getFaviconUrl(link.url, link.icon);
     const domain = getDomain(link.url);
     const initialColor = getInitialColor(link.title);
     const initial = link.title.charAt(0).toUpperCase();
+    const isDropTarget = draggedLinkId !== null && draggedLinkId !== link.id;
+
+    const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const sourceId = event.dataTransfer.getData('text/plain') || draggedLinkId;
+      const sourceIndex = sortableLinks.findIndex((item) => item.id === sourceId);
+      const targetIndex = sortableLinks.findIndex((item) => item.id === link.id);
+      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+
+      const reorderedLinks = [...sortableLinks];
+      const [movedLink] = reorderedLinks.splice(sourceIndex, 1);
+      reorderedLinks.splice(targetIndex, 0, movedLink);
+      onReorderLinks(reorderedLinks.map((item) => item.id));
+    };
 
     return (
       <div
         key={link.id}
         onClick={() => onOpenLink(link)}
+        draggable={isManageMode}
+        onDragStart={(event) => {
+          event.stopPropagation();
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', link.id);
+          setDraggedLinkId(link.id);
+        }}
+        onDragOver={(event) => {
+          if (isManageMode && draggedLinkId && draggedLinkId !== link.id && sortableLinks.some((item) => item.id === draggedLinkId)) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+          }
+        }}
+        onDrop={handleDrop}
+        onDragEnd={() => setDraggedLinkId(null)}
         className={`group relative flex flex-col justify-between p-3.5 rounded-2xl bg-theme-surface hover:bg-theme-surface-hover border transition-all duration-200 cursor-pointer shadow-theme-sm hover:shadow-theme-md ${
           isManageMode
-            ? 'border-blue-500/60 ring-1 ring-blue-500/30'
+            ? `border-blue-500/60 ring-1 ring-blue-500/30 ${draggedLinkId === link.id ? 'opacity-40' : ''} ${isDropTarget ? 'hover:ring-2 hover:ring-blue-400' : ''}`
             : 'border-theme-default hover:border-theme-hover'
         }`}
       >
@@ -155,6 +179,11 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
 
             {/* Quick Action Buttons */}
             <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              {isManageMode && (
+                <span className="p-1.5 text-blue-500 cursor-grab active:cursor-grabbing" title="拖拽排序">
+                  <GripVertical className="w-3.5 h-3.5" />
+                </span>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
@@ -167,19 +196,6 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
                 title={link.pinned ? '取消置顶' : '置顶到常用'}
               >
                 <Star className={`w-3.5 h-3.5 ${link.pinned ? 'fill-amber-500' : ''}`} />
-              </button>
-
-              <button
-                type="button"
-                onClick={(e) => handleCopy(link, e)}
-                className="p-1.5 rounded-lg hover:bg-theme-base text-theme-muted hover:text-theme-primary transition-colors"
-                title="复制网址"
-              >
-                {copiedId === link.id ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-500" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
               </button>
 
               <button
@@ -275,7 +291,7 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
 
               {/* Grid for this category */}
               <div className={`grid gap-3 ${getGridColsClass()}`}>
-                {categoryLinks.map(renderCard)}
+                {categoryLinks.map((link) => renderCard(link, categoryLinks))}
               </div>
             </section>
           );
@@ -301,7 +317,12 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
       </div>
 
       <div className={`grid gap-3 ${getGridColsClass()}`}>
-        {filteredLinks.map(renderCard)}
+        {filteredLinks.map((link) =>
+          renderCard(
+            link,
+            filteredLinks.filter((candidate) => candidate.categoryId === link.categoryId)
+          )
+        )}
       </div>
     </div>
   );

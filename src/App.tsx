@@ -27,9 +27,9 @@ import { CategoryModal } from './components/CategoryModal';
 import { SettingsModal } from './components/SettingsModal';
 import { SecretLockModal } from './components/SecretLockModal';
 import { SecretSettingsModal } from './components/SecretSettingsModal';
-import { formatUrl } from './utils/urlUtils';
+import { formatUrl, isBrowserInternalUrl } from './utils/urlUtils';
 import { recordVisit, seedInitialAnalyticsIfEmpty } from './services/analyticsDb';
-import { Sparkles, Layers, ShieldCheck, Compass, CheckCircle2, Lock, EyeOff } from 'lucide-react';
+import { Sparkles, Layers, ShieldCheck, Compass, CheckCircle2, Lock, EyeOff, Copy, X } from 'lucide-react';
 
 export default function App() {
   // Persistent State
@@ -53,6 +53,10 @@ export default function App() {
   const [defaultCategoryForNewLink, setDefaultCategoryForNewLink] = useState<string | undefined>();
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [browserUrlNotice, setBrowserUrlNotice] = useState<{
+    url: string;
+    status: 'copying' | 'copied' | 'failed';
+  } | null>(null);
 
   // Secret Navigation State
   const [isSecretMode, setIsSecretMode] = useState<boolean>(false);
@@ -218,7 +222,27 @@ export default function App() {
   ]);
 
   // Link Handlers
+  const copyBrowserInternalUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setBrowserUrlNotice((current) =>
+        current?.url === url ? { ...current, status: 'copied' } : current
+      );
+    } catch {
+      setBrowserUrlNotice((current) =>
+        current?.url === url ? { ...current, status: 'failed' } : current
+      );
+    }
+  };
+
   const handleOpenLink = (link: NavLinkItem) => {
+    const targetUrl = formatUrl(link.url);
+    if (isBrowserInternalUrl(targetUrl)) {
+      setBrowserUrlNotice({ url: targetUrl, status: 'copying' });
+      void copyBrowserInternalUrl(targetUrl);
+      return;
+    }
+
     // Increment click counter on active list
     if (isSecretMode) {
       setSecretLinks((prev) =>
@@ -241,7 +265,6 @@ export default function App() {
       });
     }
 
-    const targetUrl = formatUrl(link.url);
     if (settings.openInNewTab) {
       window.open(targetUrl, '_blank', 'noopener,noreferrer');
     } else {
@@ -283,6 +306,21 @@ export default function App() {
         item.id === link.id ? { ...item, pinned: !item.pinned } : item
       )
     );
+  };
+
+  const handleReorderLinks = (linkIds: string[]) => {
+    const setter = isSecretMode ? setSecretLinks : setLinks;
+    setter((prev) => {
+      const linksById = new Map(prev.map((link) => [link.id, link]));
+      const orderedLinks = linkIds
+        .map((id) => linksById.get(id))
+        .filter((link): link is NavLinkItem => link !== undefined);
+      const reorderedIds = new Set(linkIds);
+      let orderedIndex = 0;
+      return prev.map((link) =>
+        reorderedIds.has(link.id) ? orderedLinks[orderedIndex++] : link
+      );
+    });
   };
 
   // Category Handlers
@@ -521,7 +559,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-blue-500" />
               <span className="font-medium">
-                正在卡片整理模式：可在卡片上直接编辑、取消置顶或删除网址
+                正在卡片整理模式：可拖拽排序、编辑、取消置顶或删除网址
               </span>
             </div>
             <button
@@ -547,6 +585,7 @@ export default function App() {
           }}
           onDeleteLink={handleDeleteLink}
           onTogglePin={handleTogglePin}
+          onReorderLinks={handleReorderLinks}
           onAddNewLink={(catId) => {
             setEditingLink(null);
             setDefaultCategoryForNewLink(catId);
@@ -555,6 +594,48 @@ export default function App() {
           searchFilterQuery={searchFilterQuery}
         />
       </main>
+
+      {browserUrlNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-5 left-1/2 z-[60] w-[min(92vw,36rem)] -translate-x-1/2 rounded-xl border border-amber-500/30 bg-theme-surface p-4 text-theme-primary shadow-theme-lg"
+        >
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <p className="text-xs font-medium">
+                浏览器安全限制：网页不能直接打开内部页面。请将地址粘贴到浏览器地址栏。
+              </p>
+              <code className="block break-all select-all rounded-md bg-theme-base px-2 py-1.5 text-[11px] text-theme-secondary">
+                {browserUrlNotice.url}
+              </code>
+              <p className="text-[11px] text-theme-muted">
+                {browserUrlNotice.status === 'copying' && '正在复制地址…'}
+                {browserUrlNotice.status === 'copied' && '地址已复制，可粘贴到地址栏打开。'}
+                {browserUrlNotice.status === 'failed' && '自动复制失败，请手动复制上方地址。'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void copyBrowserInternalUrl(browserUrlNotice.url)}
+              className="shrink-0 rounded-lg p-2 text-theme-muted transition-colors hover:bg-theme-base hover:text-theme-primary"
+              title="重新复制地址"
+              aria-label="重新复制地址"
+            >
+              <Copy className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setBrowserUrlNotice(null)}
+              className="shrink-0 rounded-lg p-2 text-theme-muted transition-colors hover:bg-theme-base hover:text-theme-primary"
+              title="关闭提示"
+              aria-label="关闭提示"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Floating Action Buttons (Add Link & Settings) */}
       <FloatingActions

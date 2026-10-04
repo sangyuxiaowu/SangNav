@@ -1,10 +1,49 @@
+const PRESERVED_URL_SCHEMES = new Set([
+  'http',
+  'https',
+  'ftp',
+  'file',
+  'mailto',
+  'tel',
+  'about',
+  'edge',
+  'chrome',
+  'brave',
+  'opera',
+  'vivaldi',
+  'view-source',
+  'chrome-extension',
+  'edge-extension',
+  'moz-extension',
+]);
+const BROWSER_INTERNAL_SCHEMES = new Set([
+  'about',
+  'edge',
+  'chrome',
+  'brave',
+  'opera',
+  'vivaldi',
+  'view-source',
+  'chrome-extension',
+  'edge-extension',
+  'moz-extension',
+]);
+
+export function isBrowserInternalUrl(input: string): boolean {
+  const schemeMatch = input.trim().match(/^([a-z][a-z\d+.-]*):/i);
+  return Boolean(schemeMatch && BROWSER_INTERNAL_SCHEMES.has(schemeMatch[1].toLowerCase()));
+}
+
 export function formatUrl(input: string): string {
-  let trimmed = input.trim();
+  const trimmed = input.trim();
   if (!trimmed) return '';
-  if (!/^https?:\/\//i.test(trimmed)) {
-    trimmed = 'https://' + trimmed;
+
+  const schemeMatch = trimmed.match(/^([a-z][a-z\d+.-]*):/i);
+  if (schemeMatch && PRESERVED_URL_SCHEMES.has(schemeMatch[1].toLowerCase())) {
+    return trimmed;
   }
-  return trimmed;
+
+  return 'https://' + trimmed;
 }
 
 export function getDomain(url: string): string {

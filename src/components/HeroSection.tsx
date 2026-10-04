@@ -67,7 +67,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
       {/* Big Crisp Clock (Triple click to trigger secret mode) */}
       <div 
         onClick={handleClockClick}
-        title="双击或三击时钟可快捷呼出/切换私密空间"
+        title="连续三击时钟可呼出/切换私密空间"
         className="inline-flex items-baseline justify-center font-mono tracking-tight select-none cursor-pointer transition-transform active:scale-98"
       >
         <span className="text-5xl sm:text-6xl md:text-7xl font-light text-theme-primary drop-shadow-xs">

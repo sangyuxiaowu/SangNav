@@ -252,7 +252,7 @@ export const SecretSettingsModal: React.FC<SecretSettingsModalProps> = ({
             </div>
             <ul className="text-[10px] text-theme-muted list-disc list-inside space-y-1">
               <li>
-                呼出方式（支持多种）：连按 3 次 <strong className="text-theme-primary font-mono">Shift</strong>（推荐，无系统冲突）、快捷键 <strong className="text-theme-primary font-mono">Ctrl+Shift+S</strong>（Mac为Cmd+Shift+S），或连续 3 击主页大时钟。
+                呼出方式：三击 <strong className="text-theme-primary font-mono">Alt</strong>，或连续 3 击主页中央大时钟。
               </li>
               <li>按下键盘 <strong className="text-theme-primary font-mono">Esc</strong> 键或点击右下角红色锁定按钮可立即防窥锁定。</li>
               <li>私密空间内的书签、分类和搜索完全与外部常规空间物理隔离。</li>

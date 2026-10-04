@@ -115,9 +115,8 @@ export default function App() {
     }
   }, []);
 
-  // Secret Mode Triggers (3-times Shift, 3-times Alt, Ctrl+Shift+S)
+  // Secret Mode Trigger (3-times Alt)
   const altTapsRef = useRef<number[]>([]);
-  const shiftTapsRef = useRef<number[]>([]);
 
   const handleTriggerSecretMode = useCallback(() => {
     if (isSecretMode) {
@@ -140,21 +139,7 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyUp = (e: KeyboardEvent) => {
-      // 1. Shift key 3-taps (Recommended: 100% free of OS/browser menu conflicts!)
-      if (e.key === 'Shift') {
-        const now = Date.now();
-        const recent = shiftTapsRef.current.filter((t: number) => now - t <= 850);
-        recent.push(now);
-        shiftTapsRef.current = recent;
-
-        if (recent.length >= 3) {
-          shiftTapsRef.current = [];
-          handleTriggerSecretMode();
-          return;
-        }
-      }
-
-      // 2. Alt key 3-taps (with preventDefault to avoid Windows menu focus)
+      // Alt key 3-taps (with preventDefault to avoid Windows menu focus)
       if (e.key === 'Alt') {
         e.preventDefault();
         const now = Date.now();
@@ -189,27 +174,20 @@ export default function App() {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 1. Combo Shortcut: Ctrl + Shift + S or Cmd + Shift + S (S for Secret)
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        handleTriggerSecretMode();
-        return;
-      }
-
-      // 2. Prevent solo Alt key from triggering the browser menu bar in Windows/Linux Chrome & Edge
+      // Prevent solo Alt key from triggering the browser menu bar in Windows/Linux Chrome & Edge
       if (e.key === 'Alt' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
         // Prevent default browser menu focus
         e.preventDefault();
       }
 
-      // 3. Alt + N: Quick add link
+      // Alt + N: Quick add link
       if (e.altKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         setEditingLink(null);
         setIsLinkModalOpen(true);
       }
 
-      // 4. Esc: Close manage mode or panic escape from secret mode
+      // Esc: Close manage mode or panic escape from secret mode
       if (e.key === 'Escape') {
         if (isManageMode) {
           setIsManageMode(false);
@@ -474,7 +452,7 @@ export default function App() {
             <Lock className="w-3.5 h-3.5 text-purple-400" />
             <span className="font-semibold text-white">私密导航空间</span>
             <span className="text-purple-400/60">|</span>
-            <span className="text-[11px] text-purple-300 hidden sm:inline">三击 Shift / Ctrl+Shift+S / 按 Esc 快速伪装退出</span>
+            <span className="text-[11px] text-purple-300 hidden sm:inline">三击 Alt 呼出 / 按 Esc 快速伪装退出</span>
             <button
               type="button"
               onClick={() => {

@@ -55,7 +55,7 @@ export const SecretLockModal: React.FC<SecretLockModalProps> = ({
             <p className="text-[10px] text-theme-muted">
               {mode === 'set'
                 ? '首次进入私密空间，请自定义您的手势密码'
-                : '三击 Shift / Ctrl+Shift+S / 三击时钟 快速呼出'}
+                : '三击 Alt 或三击主页时钟快速呼出'}
             </p>
           </div>
         </div>
@@ -64,7 +64,7 @@ export const SecretLockModal: React.FC<SecretLockModalProps> = ({
         {mode === 'set' && (
           <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-[11px] text-purple-300 mb-4 flex items-center gap-2">
             <Shield className="w-4 h-4 text-purple-400 shrink-0" />
-            <span>手势图案将加密保存在本地。设置完成后，随时连按 3 次 Shift、按 Ctrl+Shift+S 或三击主页时钟即可呼出。</span>
+            <span>手势图案将加密保存在本地。设置完成后，随时三击 Alt 或连续 3 击主页中央时钟即可呼出。</span>
           </div>
         )}
 

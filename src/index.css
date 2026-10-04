@@ -1,0 +1,230 @@
+@import "tailwindcss";
+
+@layer utilities {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-6px); }
+    40%, 80% { transform: translateX(6px); }
+  }
+
+  .animate-shake {
+    animation: shake 0.4s ease-in-out;
+  }
+}
+
+:root {
+  --bg-base: #171717;
+  --bg-ambient-from: rgba(37, 99, 235, 0.15);
+  --bg-ambient-to: transparent;
+  --bg-surface: #262626;
+  --bg-surface-hover: #333333;
+  --bg-elevated: #1f1f1f;
+  --bg-input: rgba(38, 38, 38, 0.9);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-default: rgba(255, 255, 255, 0.13);
+  --border-hover: rgba(255, 255, 255, 0.28);
+  --text-primary: #f5f5f5;
+  --text-secondary: #a3a3a3;
+  --text-muted: #737373;
+  --tag-bg: rgba(255, 255, 255, 0.07);
+  --tag-hover: rgba(255, 255, 255, 0.12);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 14px 0 rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.5);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
+}
+
+[data-theme="light"] {
+  --bg-base: #f8fafc;
+  --bg-ambient-from: rgba(59, 130, 246, 0.08);
+  --bg-ambient-to: transparent;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f1f5f9;
+  --bg-elevated: #ffffff;
+  --bg-input: #ffffff;
+  --border-subtle: #f1f5f9;
+  --border-default: #e2e8f0;
+  --border-hover: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --tag-bg: #f1f5f9;
+  --tag-hover: #e2e8f0;
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 28px -4px rgba(15, 23, 42, 0.1), 0 4px 8px -2px rgba(15, 23, 42, 0.05);
+  --scrollbar-thumb: rgba(15, 23, 42, 0.18);
+  --scrollbar-thumb-hover: rgba(15, 23, 42, 0.32);
+}
+
+[data-theme="midnight"] {
+  --bg-base: #030712;
+  --bg-ambient-from: rgba(56, 189, 248, 0.15);
+  --bg-ambient-to: transparent;
+  --bg-surface: #0f172a;
+  --bg-surface-hover: #1e293b;
+  --bg-elevated: #0b1120;
+  --bg-input: rgba(15, 23, 42, 0.9);
+  --border-subtle: rgba(56, 189, 248, 0.08);
+  --border-default: rgba(56, 189, 248, 0.16);
+  --border-hover: rgba(56, 189, 248, 0.35);
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --tag-bg: rgba(56, 189, 248, 0.08);
+  --tag-hover: rgba(56, 189, 248, 0.16);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 14px 0 rgba(2, 6, 23, 0.6);
+  --shadow-lg: 0 10px 25px -3px rgba(2, 6, 23, 0.8);
+  --scrollbar-thumb: rgba(56, 189, 248, 0.25);
+  --scrollbar-thumb-hover: rgba(56, 189, 248, 0.4);
+}
+
+[data-theme="emerald"] {
+  --bg-base: #06110c;
+  --bg-ambient-from: rgba(16, 185, 129, 0.15);
+  --bg-ambient-to: transparent;
+  --bg-surface: #0d1e15;
+  --bg-surface-hover: #142a1f;
+  --bg-elevated: #0a1811;
+  --bg-input: rgba(13, 30, 21, 0.9);
+  --border-subtle: rgba(52, 211, 153, 0.08);
+  --border-default: rgba(52, 211, 153, 0.16);
+  --border-hover: rgba(52, 211, 153, 0.35);
+  --text-primary: #ecfdf5;
+  --text-secondary: #a7f3d0;
+  --text-muted: #6ee7b7;
+  --tag-bg: rgba(52, 211, 153, 0.08);
+  --tag-hover: rgba(52, 211, 153, 0.16);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 14px 0 rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.8);
+  --scrollbar-thumb: rgba(52, 211, 153, 0.25);
+  --scrollbar-thumb-hover: rgba(52, 211, 153, 0.4);
+}
+
+[data-theme="amber"] {
+  --bg-base: #110d0a;
+  --bg-ambient-from: rgba(245, 158, 11, 0.15);
+  --bg-ambient-to: transparent;
+  --bg-surface: #1c1510;
+  --bg-surface-hover: #292018;
+  --bg-elevated: #16100c;
+  --bg-input: rgba(28, 21, 16, 0.9);
+  --border-subtle: rgba(251, 191, 36, 0.08);
+  --border-default: rgba(251, 191, 36, 0.16);
+  --border-hover: rgba(251, 191, 36, 0.35);
+  --text-primary: #fffbeb;
+  --text-secondary: #fde68a;
+  --text-muted: #d97706;
+  --tag-bg: rgba(251, 191, 36, 0.08);
+  --tag-hover: rgba(251, 191, 36, 0.16);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 14px 0 rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.8);
+  --scrollbar-thumb: rgba(251, 191, 36, 0.25);
+  --scrollbar-thumb-hover: rgba(251, 191, 36, 0.4);
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  overflow-x: hidden;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Custom smooth theme scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Semantic theme helper classes */
+.bg-theme-base {
+  background-color: var(--bg-base);
+}
+
+.bg-theme-surface {
+  background-color: var(--bg-surface);
+}
+
+.bg-theme-surface-hover:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+.bg-theme-elevated {
+  background-color: var(--bg-elevated);
+}
+
+.bg-theme-input {
+  background-color: var(--bg-input);
+}
+
+.bg-theme-tag {
+  background-color: var(--tag-bg);
+}
+
+.bg-theme-tag-hover:hover {
+  background-color: var(--tag-hover);
+}
+
+.text-theme-primary {
+  color: var(--text-primary);
+}
+
+.text-theme-secondary {
+  color: var(--text-secondary);
+}
+
+.text-theme-muted {
+  color: var(--text-muted);
+}
+
+.border-theme-subtle {
+  border-color: var(--border-subtle);
+}
+
+.border-theme-default {
+  border-color: var(--border-default);
+}
+
+.border-theme-hover:hover {
+  border-color: var(--border-hover);
+}
+
+.shadow-theme-sm {
+  box-shadow: var(--shadow-sm);
+}
+
+.shadow-theme-md {
+  box-shadow: var(--shadow-md);
+}
+
+.shadow-theme-lg {
+  box-shadow: var(--shadow-lg);
+}

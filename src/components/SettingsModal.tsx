@@ -393,6 +393,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 >
                   <option value="google">Google</option>
                   <option value="icon-horse">Icon Horse</option>
+                  <option value="syxw">favicon.syxw</option>
                   <option value="origin">源站 favicon.ico</option>
                   <option value="default">默认兜底图标</option>
                 </select>

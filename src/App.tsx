@@ -68,7 +68,7 @@ export default function App() {
 
   const faviconSources = JSON.stringify([...new Set(
     [...links, ...secretLinks].flatMap((link) =>
-      (['google', 'icon-horse', 'origin'] as const)
+      (['google', 'icon-horse', 'syxw', 'origin'] as const)
         .map((provider) => getFaviconUrl(link.url, link.icon, provider))
         .filter(Boolean)
     )

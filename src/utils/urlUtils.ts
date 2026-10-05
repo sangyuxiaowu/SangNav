@@ -75,6 +75,8 @@ export function getFaviconUrl(
     switch (provider) {
       case 'google':
         return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+      case 'syxw':
+        return `https://favicon.syxw.site/icon/${encodeURIComponent(domain)}`;
       case 'origin':
         return new URL('/favicon.ico', parsed.origin).href;
       default:

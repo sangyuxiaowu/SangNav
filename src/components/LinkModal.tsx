@@ -168,6 +168,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
               onChange={(e) => setCategoryId(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl bg-theme-base border border-theme-default focus:border-blue-500 focus:outline-none text-theme-primary text-xs shadow-xs"
             >
+              {categories.length === 0 && <option value="default">未分类</option>}
               {categories.map((c) => (
                 <option key={c.id} value={c.id} className="bg-theme-surface text-theme-primary">
                   {c.name}

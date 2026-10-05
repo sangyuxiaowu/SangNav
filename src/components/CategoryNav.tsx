@@ -67,11 +67,14 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
         >
           <Layers className="w-3.5 h-3.5" />
           <span>全部网址</span>
-          <span className="text-[11px] opacity-80 ml-0.5 font-mono tabular-nums">{totalLinksCount}</span>
+          {totalLinksCount > 0 && (
+            <span className="text-[11px] opacity-80 ml-0.5 font-mono tabular-nums">{totalLinksCount}</span>
+          )}
         </button>
 
         {categories.map((cat) => {
           const count = categoryCounts[cat.id] || 0;
+          if (count === 0) return null;
           const isActive = activeCategoryId === cat.id;
 
           return (

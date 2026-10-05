@@ -295,15 +295,23 @@ export default function App() {
     id?: string
   ) => {
     const setter = isSecretMode ? setSecretLinks : setLinks;
+    const categorySetter = isSecretMode ? setSecretCategories : setCategories;
+    const categoryList = isSecretMode ? secretCategories : categories;
+    const category = categoryList.find((item) => item.id === data.categoryId)
+      ?? categoryList[0]
+      ?? { id: 'default', name: '未分类', iconName: 'Layers', order: 1 };
+    if (categoryList.length === 0) categorySetter([category]);
+    const savedData = { ...data, categoryId: category.id };
+
     if (id) {
       // Edit existing
       setter((prev) =>
-        prev.map((item) => (item.id === id ? { ...item, ...data } : item))
+        prev.map((item) => (item.id === id ? { ...item, ...savedData } : item))
       );
     } else {
       // Add new
       const newLink: NavLinkItem = {
-        ...data,
+        ...savedData,
         id: `link-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         clicks: 0,
         createdAt: Date.now(),
@@ -425,6 +433,24 @@ export default function App() {
   // Active data source based on current mode
   const currentLinks = isSecretMode ? secretLinks : links;
   const currentCategories = isSecretMode ? secretCategories : categories;
+
+  useEffect(() => {
+    if (activeCategoryId !== 'all' && !currentLinks.some((link) => link.categoryId === activeCategoryId)) {
+      setActiveCategoryId('all');
+    }
+
+    const categoryIds = new Set(currentCategories.map((category) => category.id));
+    if (!currentLinks.some((link) => !categoryIds.has(link.categoryId))) return;
+
+    const fallback = currentCategories[0]
+      ?? { id: 'default', name: '未分类', iconName: 'Layers', order: 1 };
+    const categorySetter = isSecretMode ? setSecretCategories : setCategories;
+    const linkSetter = isSecretMode ? setSecretLinks : setLinks;
+    if (currentCategories.length === 0) categorySetter([fallback]);
+    linkSetter((previous) => previous.map((link) =>
+      categoryIds.has(link.categoryId) ? link : { ...link, categoryId: fallback.id }
+    ));
+  }, [currentLinks, currentCategories, activeCategoryId, isSecretMode]);
 
   // Computed data
   const pinnedLinks = useMemo(() => currentLinks.filter((l) => l.pinned), [currentLinks]);

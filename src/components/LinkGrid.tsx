@@ -12,6 +12,7 @@ import {
   Layers 
 } from 'lucide-react';
 import { getCategoryIcon } from './CategoryNav';
+import { CachedFavicon } from './CachedFavicon';
 
 interface LinkGridProps {
   categories: NavCategory[];
@@ -152,18 +153,10 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
           <div className="flex items-start justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-xl bg-theme-base border border-theme-subtle flex items-center justify-center shrink-0 overflow-hidden group-hover:scale-105 transition-transform shadow-xs">
-                <img
+                <CachedFavicon
                   src={favicon}
-                  alt=""
                   className="w-5 h-5 object-contain"
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                    const parent = e.currentTarget.parentElement;
-                    if (parent) {
-                      parent.innerHTML = `<span class="${initialColor.text} ${initialColor.bg} w-full h-full flex items-center justify-center text-xs font-bold">${initial}</span>`;
-                    }
-                  }}
+                  fallback={<span className={`${initialColor.text} ${initialColor.bg} w-full h-full flex items-center justify-center text-xs font-bold`}>{initial}</span>}
                 />
               </div>
 

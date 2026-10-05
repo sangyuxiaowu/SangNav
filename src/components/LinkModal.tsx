@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NavCategory, NavLinkItem } from '../types/navigation';
 import { formatUrl, getFaviconUrl } from '../utils/urlUtils';
 import { X, Globe, Star, Sparkles, Link as LinkIcon } from 'lucide-react';
+import { CachedFavicon } from './CachedFavicon';
 
 interface LinkModalProps {
   isOpen: boolean;
@@ -125,11 +126,9 @@ export const LinkModal: React.FC<LinkModalProps> = ({
               {previewFavicon && (
                 <span className="flex items-center gap-1.5 text-theme-muted text-[11px]">
                   <span>图标预览:</span>
-                  <img
+                  <CachedFavicon
                     src={previewFavicon}
-                    alt=""
                     className="w-3.5 h-3.5 rounded-xs object-contain"
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
                   />
                 </span>
               )}

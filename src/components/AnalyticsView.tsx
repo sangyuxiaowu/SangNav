@@ -22,6 +22,7 @@ import {
   EngineStat 
 } from '../services/analyticsDb';
 import { getFaviconUrl, getInitialColor, formatUrl } from '../utils/urlUtils';
+import { CachedFavicon } from './CachedFavicon';
 
 interface AnalyticsViewProps {
   onOpenLink?: (url: string) => void;
@@ -311,20 +312,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink }) => {
 
                       {/* Icon */}
                       <div className="w-5 h-5 rounded-md overflow-hidden bg-theme-base flex items-center justify-center shrink-0">
-                        {favicon ? (
-                          <img
-                            src={favicon}
-                            alt=""
-                            className="w-3.5 h-3.5 object-contain"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <div className={`w-full h-full text-[9px] font-bold text-white flex items-center justify-center ${initialColor}`}>
-                            {initial}
-                          </div>
-                        )}
+                        <CachedFavicon
+                          src={favicon}
+                          className="w-3.5 h-3.5 object-contain"
+                          fallback={<span className={`${initialColor.text} ${initialColor.bg} w-full h-full text-[9px] font-bold flex items-center justify-center`}>{initial}</span>}
+                        />
                       </div>
 
                       {/* Title & Domain */}

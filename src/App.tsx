@@ -27,8 +27,9 @@ import { CategoryModal } from './components/CategoryModal';
 import { SettingsModal } from './components/SettingsModal';
 import { SecretLockModal } from './components/SecretLockModal';
 import { SecretSettingsModal } from './components/SecretSettingsModal';
-import { formatUrl, isBrowserInternalUrl } from './utils/urlUtils';
+import { formatUrl, getFaviconUrl, isBrowserInternalUrl } from './utils/urlUtils';
 import { recordVisit, seedInitialAnalyticsIfEmpty } from './services/analyticsDb';
+import { deleteCachedFavicon } from './services/faviconDb';
 import { Sparkles, Layers, ShieldCheck, Compass, CheckCircle2, Lock, EyeOff, Copy, X } from 'lucide-react';
 
 export default function App() {
@@ -64,6 +65,19 @@ export default function App() {
   const [secretCategories, setSecretCategories] = useLocalStorage<NavCategory[]>('novanav_secret_categories', DEFAULT_SECRET_CATEGORIES);
   const [secretPattern, setSecretPattern] = useLocalStorage<number[] | null>('novanav_secret_pattern', null);
   const [autoLockOnBlur, setAutoLockOnBlur] = useLocalStorage<boolean>('novanav_secret_autolock', false);
+
+  const faviconSources = JSON.stringify([...new Set(
+    [...links, ...secretLinks].map((link) => getFaviconUrl(link.url, link.icon))
+  )]);
+  const previousFaviconSources = useRef(new Set<string>());
+
+  useEffect(() => {
+    const currentSources = new Set<string>(JSON.parse(faviconSources));
+    for (const source of previousFaviconSources.current) {
+      if (!currentSources.has(source)) void deleteCachedFavicon(source);
+    }
+    previousFaviconSources.current = currentSources;
+  }, [faviconSources]);
 
   const [isSecretLockModalOpen, setIsSecretLockModalOpen] = useState(false);
   const [secretLockMode, setSecretLockMode] = useState<'set' | 'unlock'>('unlock');

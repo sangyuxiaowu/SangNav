@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLinkItem } from '../types/navigation';
 import { getFaviconUrl, getInitialColor } from '../utils/urlUtils';
 import { Star, Plus } from 'lucide-react';
+import { CachedFavicon } from './CachedFavicon';
 
 interface QuickDockProps {
   pinnedLinks: NavLinkItem[];
@@ -43,18 +44,10 @@ export const QuickDock: React.FC<QuickDockProps> = ({
               className="group relative flex items-center gap-2 px-3 py-2 rounded-xl bg-theme-surface hover:bg-theme-surface-hover border border-theme-default hover:border-theme-hover text-theme-primary text-xs font-medium cursor-pointer transition-all duration-150 backdrop-blur-xs shadow-theme-sm"
             >
               <div className="w-5 h-5 rounded-md flex items-center justify-center overflow-hidden shrink-0 bg-theme-base border border-theme-subtle">
-                <img
+                <CachedFavicon
                   src={favicon}
-                  alt=""
                   className="w-4 h-4 object-contain"
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                    const parent = e.currentTarget.parentElement;
-                    if (parent) {
-                      parent.innerHTML = `<span class="${initialColor.text} ${initialColor.bg} w-full h-full flex items-center justify-center text-[10px] font-bold">${initial}</span>`;
-                    }
-                  }}
+                  fallback={<span className={`${initialColor.text} ${initialColor.bg} w-full h-full flex items-center justify-center text-[10px] font-bold`}>{initial}</span>}
                 />
               </div>
               <span className="truncate max-w-[120px] group-hover:text-blue-500 transition-colors">

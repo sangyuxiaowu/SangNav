@@ -4,7 +4,8 @@ import {
   SearchEngine, 
   NavCategory, 
   NavLinkItem, 
-  ThemeMode 
+  ThemeMode,
+  FaviconProvider
 } from '../types/navigation';
 import { 
   X, 
@@ -382,6 +383,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
+              <div className="space-y-2.5">
+                <label htmlFor="favicon-provider" className="font-semibold text-theme-primary">无自定义图标时</label>
+                <select
+                  id="favicon-provider"
+                  value={settings.faviconProvider ?? 'icon-horse'}
+                  onChange={(event) => onUpdateSettings({ ...settings, faviconProvider: event.target.value as FaviconProvider })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-theme-base border border-theme-default focus:border-blue-500 focus:outline-none text-theme-primary text-xs"
+                >
+                  <option value="google">Google</option>
+                  <option value="icon-horse">Icon Horse</option>
+                  <option value="origin">源站 favicon.ico</option>
+                  <option value="default">默认兜底图标</option>
+                </select>
+              </div>
+
               {/* Link Target */}
               <div className="flex items-center justify-between p-3.5 rounded-2xl bg-theme-base border border-theme-default">
                 <div>
@@ -680,6 +696,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* TAB 3: Analytics & Usage Statistics */}
           {activeTab === 'analytics' && (
             <AnalyticsView
+              faviconProvider={settings.faviconProvider}
+              links={links}
               onOpenLink={(url) => {
                 window.open(url, '_blank', 'noopener,noreferrer');
               }}

@@ -12,6 +12,7 @@ export const CachedFavicon: React.FC<CachedFaviconProps> = ({ src, className, fa
   const [failedSource, setFailedSource] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!src) return;
     let active = true;
     let objectUrl: string | undefined;
     void getCachedFavicon(src).then((blob) => {
@@ -26,7 +27,7 @@ export const CachedFavicon: React.FC<CachedFaviconProps> = ({ src, className, fa
     };
   }, [src]);
 
-  if (image?.source !== src || failedSource === src) return <>{fallback}</>;
+  if (!src || image?.source !== src || failedSource === src) return <>{fallback}</>;
 
   return (
     <img

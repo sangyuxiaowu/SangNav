@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLinkItem } from '../types/navigation';
+import { FaviconProvider, NavLinkItem } from '../types/navigation';
 import { getFaviconUrl, getInitialColor } from '../utils/urlUtils';
 import { Star, Plus } from 'lucide-react';
 import { CachedFavicon } from './CachedFavicon';
@@ -10,6 +10,7 @@ interface QuickDockProps {
   onAddLink: () => void;
   isManageMode?: boolean;
   onUnpin?: (link: NavLinkItem) => void;
+  faviconProvider?: FaviconProvider;
 }
 
 export const QuickDock: React.FC<QuickDockProps> = ({
@@ -18,6 +19,7 @@ export const QuickDock: React.FC<QuickDockProps> = ({
   onAddLink,
   isManageMode = false,
   onUnpin,
+  faviconProvider,
 }) => {
   if (pinnedLinks.length === 0 && !isManageMode) {
     return null;
@@ -33,7 +35,7 @@ export const QuickDock: React.FC<QuickDockProps> = ({
 
       <div className="flex flex-wrap items-center gap-2">
         {pinnedLinks.map((link) => {
-          const favicon = getFaviconUrl(link.url, link.icon);
+          const favicon = getFaviconUrl(link.url, link.icon, faviconProvider);
           const initialColor = getInitialColor(link.title);
           const initial = link.title.charAt(0).toUpperCase();
 

@@ -23,12 +23,15 @@ import {
 } from '../services/analyticsDb';
 import { getFaviconUrl, getInitialColor, formatUrl } from '../utils/urlUtils';
 import { CachedFavicon } from './CachedFavicon';
+import type { FaviconProvider, NavLinkItem } from '../types/navigation';
 
 interface AnalyticsViewProps {
   onOpenLink?: (url: string) => void;
+  faviconProvider?: FaviconProvider;
+  links?: NavLinkItem[];
 }
 
-export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink }) => {
+export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, faviconProvider, links = [] }) => {
   const [timeRange, setTimeRange] = useState<'all' | '7days' | 'today'>('all');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<{
@@ -283,7 +286,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink }) => {
         ) : (
           <div className="space-y-2.5">
             {data.topLinks.map((item, index) => {
-              const favicon = getFaviconUrl(item.url);
+              const link = links.find((link) => link.id === item.linkId);
+              const favicon = getFaviconUrl(link?.url || item.url, link?.icon, faviconProvider);
               const initial = item.title.charAt(0).toUpperCase();
               const initialColor = getInitialColor(item.title);
               // Max percentage for relative bar scaling

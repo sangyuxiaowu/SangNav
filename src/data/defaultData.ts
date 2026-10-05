@@ -498,6 +498,7 @@ export const WALLPAPER_PRESETS = [
 
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: 'dark',
+  faviconProvider: 'icon-horse',
   openInNewTab: true,
   defaultEngineId: 'bing',
   columnsCount: 4,

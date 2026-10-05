@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavCategory, NavLinkItem } from '../types/navigation';
+import { FaviconProvider, NavCategory, NavLinkItem } from '../types/navigation';
 import { getFaviconUrl, getInitialColor, getDomain } from '../utils/urlUtils';
 import { 
   Star, 
@@ -27,6 +27,7 @@ interface LinkGridProps {
   onReorderLinks: (linkIds: string[]) => void;
   onAddNewLink: (categoryId?: string) => void;
   searchFilterQuery?: string;
+  faviconProvider?: FaviconProvider;
 }
 
 export const LinkGrid: React.FC<LinkGridProps> = ({
@@ -42,6 +43,7 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
   onReorderLinks,
   onAddNewLink,
   searchFilterQuery = '',
+  faviconProvider,
 }) => {
   const [draggedLinkId, setDraggedLinkId] = useState<string | null>(null);
 
@@ -103,7 +105,7 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
 
   // Render a single card
   const renderCard = (link: NavLinkItem, sortableLinks: NavLinkItem[]) => {
-    const favicon = getFaviconUrl(link.url, link.icon);
+    const favicon = getFaviconUrl(link.url, link.icon, faviconProvider);
     const domain = getDomain(link.url);
     const initialColor = getInitialColor(link.title);
     const initial = link.title.charAt(0).toUpperCase();

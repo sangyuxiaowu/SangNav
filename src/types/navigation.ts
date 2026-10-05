@@ -68,9 +68,11 @@ export interface WeatherData {
 }
 
 export type ThemeMode = 'dark' | 'midnight' | 'light' | 'emerald' | 'amber' | 'cyber';
+export type FaviconProvider = 'google' | 'icon-horse' | 'origin' | 'default';
 
 export interface UserSettings {
   theme: ThemeMode;
+  faviconProvider?: FaviconProvider;
   openInNewTab: boolean;
   defaultEngineId: string;
   columnsCount: 3 | 4 | 5 | 6;

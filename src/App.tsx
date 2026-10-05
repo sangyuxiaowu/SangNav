@@ -67,7 +67,11 @@ export default function App() {
   const [autoLockOnBlur, setAutoLockOnBlur] = useLocalStorage<boolean>('novanav_secret_autolock', false);
 
   const faviconSources = JSON.stringify([...new Set(
-    [...links, ...secretLinks].map((link) => getFaviconUrl(link.url, link.icon))
+    [...links, ...secretLinks].flatMap((link) =>
+      (['google', 'icon-horse', 'origin'] as const)
+        .map((provider) => getFaviconUrl(link.url, link.icon, provider))
+        .filter(Boolean)
+    )
   )]);
   const previousFaviconSources = useRef(new Set<string>());
 
@@ -544,6 +548,7 @@ export default function App() {
         {/* Pinned Bookmarks Dock (if enabled) */}
         {settings.showPinnedDock && (
           <QuickDock
+            faviconProvider={settings.faviconProvider}
             pinnedLinks={pinnedLinks}
             onOpenLink={handleOpenLink}
             onAddLink={() => {
@@ -587,6 +592,7 @@ export default function App() {
 
         {/* Link Cards Grid */}
         <LinkGrid
+          faviconProvider={settings.faviconProvider}
           categories={currentCategories}
           links={currentLinks}
           activeCategoryId={activeCategoryId}
@@ -683,6 +689,7 @@ export default function App() {
 
       {/* Modals */}
       <LinkModal
+        faviconProvider={settings.faviconProvider}
         isOpen={isLinkModalOpen}
         onClose={() => {
           setIsLinkModalOpen(false);

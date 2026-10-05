@@ -1,3 +1,5 @@
+import type { FaviconProvider } from '../types/navigation';
+
 const PRESERVED_URL_SCHEMES = new Set([
   'http',
   'https',
@@ -56,12 +58,31 @@ export function getDomain(url: string): string {
   }
 }
 
-export function getFaviconUrl(url: string, customIcon?: string): string {
+export function getFaviconUrl(
+  url: string,
+  customIcon?: string,
+  provider: FaviconProvider = 'icon-horse'
+): string {
   if (customIcon && customIcon.trim()) {
     return customIcon.trim();
   }
-  const domain = getDomain(url);
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+  if (provider === 'default') return '';
+
+  try {
+    const parsed = new URL(formatUrl(url));
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    const domain = parsed.hostname.replace(/^www\./, '');
+    switch (provider) {
+      case 'google':
+        return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+      case 'origin':
+        return new URL('/favicon.ico', parsed.origin).href;
+      default:
+        return `https://icon.horse/icon/${encodeURIComponent(domain)}`;
+    }
+  } catch {
+    return '';
+  }
 }
 
 // Generate consistent pleasing color for fallback icons based on link title

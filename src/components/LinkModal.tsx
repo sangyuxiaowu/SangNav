@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavCategory, NavLinkItem } from '../types/navigation';
+import { FaviconProvider, NavCategory, NavLinkItem } from '../types/navigation';
 import { formatUrl, getFaviconUrl } from '../utils/urlUtils';
 import { X, Globe, Star, Sparkles, Link as LinkIcon } from 'lucide-react';
 import { CachedFavicon } from './CachedFavicon';
@@ -10,6 +10,7 @@ interface LinkModalProps {
   categories: NavCategory[];
   initialData?: NavLinkItem | null;
   defaultCategoryId?: string;
+  faviconProvider?: FaviconProvider;
   onSave: (data: Omit<NavLinkItem, 'id' | 'createdAt' | 'clicks'>, id?: string) => void;
 }
 
@@ -19,6 +20,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
   categories,
   initialData,
   defaultCategoryId,
+  faviconProvider,
   onSave,
 }) => {
   const [title, setTitle] = useState('');
@@ -78,7 +80,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
     onClose();
   };
 
-  const previewFavicon = url ? getFaviconUrl(url, icon) : null;
+  const previewFavicon = url ? getFaviconUrl(url, icon, faviconProvider) : null;
 
   return (
     <div
@@ -188,7 +190,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
 
           {/* Custom Icon URL (Optional) */}
           <div className="space-y-1.5">
-            <label className="font-medium text-theme-primary">自定义图标链接 (可选，留空将自动获取 Favicon)</label>
+            <label className="font-medium text-theme-primary">自定义图标链接 (可选)</label>
             <input
               type="text"
               value={icon}

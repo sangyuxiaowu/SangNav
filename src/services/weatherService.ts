@@ -1,6 +1,6 @@
 import { WeatherData } from '../types/navigation';
 
-const WEATHER_CACHE_KEY = 'novanav_weather_cache';
+const WEATHER_CACHE_KEY = 'sangnav_weather_cache';
 const CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes cache
 
 export async function fetchWeather(ip?: string, forceRefresh = false): Promise<WeatherData> {

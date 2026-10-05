@@ -34,12 +34,12 @@ import { Sparkles, Layers, ShieldCheck, Compass, CheckCircle2, Lock, EyeOff, Cop
 
 export default function App() {
   // Persistent State
-  const [links, setLinks] = useLocalStorage<NavLinkItem[]>('novanav_links', DEFAULT_LINKS);
-  const [categories, setCategories] = useLocalStorage<NavCategory[]>('novanav_categories', DEFAULT_CATEGORIES);
-  const [engines, setEngines] = useLocalStorage<SearchEngine[]>('novanav_engines', DEFAULT_SEARCH_ENGINES);
-  const [settings, setSettings] = useLocalStorage<UserSettings>('novanav_settings', DEFAULT_SETTINGS);
+  const [links, setLinks] = useLocalStorage<NavLinkItem[]>('sangnav_links', DEFAULT_LINKS);
+  const [categories, setCategories] = useLocalStorage<NavCategory[]>('sangnav_categories', DEFAULT_CATEGORIES);
+  const [engines, setEngines] = useLocalStorage<SearchEngine[]>('sangnav_engines', DEFAULT_SEARCH_ENGINES);
+  const [settings, setSettings] = useLocalStorage<UserSettings>('sangnav_settings', DEFAULT_SETTINGS);
   const [activeEngineId, setActiveEngineId] = useLocalStorage<string>(
-    'novanav_active_engine',
+    'sangnav_active_engine',
     settings.defaultEngineId || 'bing'
   );
 
@@ -61,10 +61,10 @@ export default function App() {
 
   // Secret Navigation State
   const [isSecretMode, setIsSecretMode] = useState<boolean>(false);
-  const [secretLinks, setSecretLinks] = useLocalStorage<NavLinkItem[]>('novanav_secret_links', DEFAULT_SECRET_LINKS);
-  const [secretCategories, setSecretCategories] = useLocalStorage<NavCategory[]>('novanav_secret_categories', DEFAULT_SECRET_CATEGORIES);
-  const [secretPattern, setSecretPattern] = useLocalStorage<number[] | null>('novanav_secret_pattern', null);
-  const [autoLockOnBlur, setAutoLockOnBlur] = useLocalStorage<boolean>('novanav_secret_autolock', false);
+  const [secretLinks, setSecretLinks] = useLocalStorage<NavLinkItem[]>('sangnav_secret_links', DEFAULT_SECRET_LINKS);
+  const [secretCategories, setSecretCategories] = useLocalStorage<NavCategory[]>('sangnav_secret_categories', DEFAULT_SECRET_CATEGORIES);
+  const [secretPattern, setSecretPattern] = useLocalStorage<number[] | null>('sangnav_secret_pattern', null);
+  const [autoLockOnBlur, setAutoLockOnBlur] = useLocalStorage<boolean>('sangnav_secret_autolock', false);
 
   const faviconSources = JSON.stringify([...new Set(
     [...links, ...secretLinks].flatMap((link) =>

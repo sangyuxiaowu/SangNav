@@ -36,7 +36,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   const [searchMode, setSearchMode] = useState<'web' | 'local'>('web');
   const [history, setHistory] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem('novanav_search_history');
+      const saved = localStorage.getItem('sangnav_search_history');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -53,20 +53,20 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     if (!trimmed) return;
     const next = [trimmed, ...history.filter(h => h !== trimmed)].slice(0, 8);
     setHistory(next);
-    localStorage.setItem('novanav_search_history', JSON.stringify(next));
+    localStorage.setItem('sangnav_search_history', JSON.stringify(next));
   };
 
   const removeHistoryItem = (term: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const next = history.filter(h => h !== term);
     setHistory(next);
-    localStorage.setItem('novanav_search_history', JSON.stringify(next));
+    localStorage.setItem('sangnav_search_history', JSON.stringify(next));
   };
 
   const clearAllHistory = (e: React.MouseEvent) => {
     e.stopPropagation();
     setHistory([]);
-    localStorage.removeItem('novanav_search_history');
+    localStorage.removeItem('sangnav_search_history');
   };
 
   const handleExecuteSearch = (searchQuery: string) => {

@@ -50,7 +50,7 @@ export const SecretSettingsModal: React.FC<SecretSettingsModalProps> = ({
   const handleExportSecretData = () => {
     const backup = {
       version: '1.0',
-      type: 'novanav_secret_backup',
+      type: 'sangnav_secret_backup',
       exportedAt: new Date().toISOString(),
       categories: secretCategories,
       links: secretLinks,
@@ -58,7 +58,7 @@ export const SecretSettingsModal: React.FC<SecretSettingsModalProps> = ({
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backup, null, 2));
     const a = document.createElement('a');
     a.setAttribute('href', dataStr);
-    a.setAttribute('download', `novanav_secret_backup_${new Date().toISOString().split('T')[0]}.json`);
+    a.setAttribute('download', `sangnav_secret_backup_${new Date().toISOString().split('T')[0]}.json`);
     document.body.appendChild(a);
     a.click();
     a.remove();

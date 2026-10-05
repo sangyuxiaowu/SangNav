@@ -1,5 +1,5 @@
 /**
- * IndexedDB Analytics Service for NovaNav
+ * IndexedDB Analytics Service for sangnav
  * Stores local visit and search telemetry completely on-device.
  */
 
@@ -55,7 +55,7 @@ export interface EngineStat {
   percentage: number;
 }
 
-const DB_NAME = 'novanav_analytics_db';
+const DB_NAME = 'sangnav_analytics_db';
 const DB_VERSION = 1;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -368,7 +368,7 @@ export async function getAnalyticsDashboardData(timeRange: 'all' | '7days' | 'to
 export async function seedInitialAnalyticsIfEmpty(links: Array<{ id: string; title: string; url: string; categoryId: string; clicks?: number }>) {
   try {
     // If user has already initialized or cleared, never auto-seed again!
-    if (typeof window !== 'undefined' && localStorage.getItem('novanav_analytics_initialized') === 'true') {
+    if (typeof window !== 'undefined' && localStorage.getItem('sangnav_analytics_initialized') === 'true') {
       return;
     }
 
@@ -383,13 +383,13 @@ export async function seedInitialAnalyticsIfEmpty(links: Array<{ id: string; tit
 
     if (count > 0) {
       if (typeof window !== 'undefined') {
-        localStorage.setItem('novanav_analytics_initialized', 'true');
+        localStorage.setItem('sangnav_analytics_initialized', 'true');
       }
       return;
     }
 
     if (typeof window !== 'undefined') {
-      localStorage.setItem('novanav_analytics_initialized', 'true');
+      localStorage.setItem('sangnav_analytics_initialized', 'true');
     }
 
     // Seed realistic visits from links
@@ -462,7 +462,7 @@ export async function seedInitialAnalyticsIfEmpty(links: Array<{ id: string; tit
  */
 export async function clearAllAnalytics(): Promise<void> {
   if (typeof window !== 'undefined') {
-    localStorage.setItem('novanav_analytics_initialized', 'true');
+    localStorage.setItem('sangnav_analytics_initialized', 'true');
   }
   try {
     const db = await getDb();

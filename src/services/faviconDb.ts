@@ -1,4 +1,4 @@
-const DB_NAME = 'novanav_favicons_db';
+const DB_NAME = 'sangnav_favicons_db';
 const STORE_NAME = 'favicons';
 
 let dbPromise: Promise<IDBDatabase> | null = null;

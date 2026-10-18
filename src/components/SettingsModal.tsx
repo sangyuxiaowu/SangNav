@@ -25,7 +25,8 @@ import {
   Image as ImageIcon,
   Sliders,
   Sparkles,
-  BarChart3
+  BarChart3,
+  RefreshCw
 } from 'lucide-react';
 import { AnalyticsView } from './AnalyticsView';
 import { clearAllAnalytics } from '../services/analyticsDb';
@@ -72,6 +73,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [confirmResetDefaults, setConfirmResetDefaults] = useState(false);
   const [confirmClearStats, setConfirmClearStats] = useState(false);
   const [statsClearMessage, setStatsClearMessage] = useState<string | null>(null);
+  const [pwaCheckStatus, setPwaCheckStatus] = useState<string | null>(null);
 
   // New engine form state
   const [engineName, setEngineName] = useState('');
@@ -399,21 +401,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </select>
               </div>
 
-              {/* Link Target */}
-              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-theme-base border border-theme-default">
-                <div>
-                  <div className="font-semibold text-theme-primary">在新标签页中打开网址</div>
-                  <div className="text-[11px] text-theme-muted">点击书签链接时，保留当前导航页并在新窗口启动</div>
+              {/* Link & Search Open Target Setting */}
+              <div className="p-4 rounded-2xl bg-theme-base border border-theme-default space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-theme-primary">打开方式设置（网址与全网搜索）</div>
+                    <div className="text-[11px] text-theme-muted mt-0.5">
+                      控制点击书签卡片和提交搜索时的页面跳转逻辑，默认直接在当前页打开
+                    </div>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${
+                    !settings.openInNewTab
+                      ? 'bg-blue-500/10 text-blue-500 border-blue-500/20'
+                      : 'bg-theme-surface text-theme-muted border-theme-subtle'
+                  }`}>
+                    {!settings.openInNewTab ? '本页直接跳转 (默认)' : '新标签页打开'}
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onUpdateSettings({ ...settings, openInNewTab: !settings.openInNewTab })}
-                  className={`w-10 h-5 flex items-center rounded-full p-1 transition-colors cursor-pointer ${
-                    settings.openInNewTab ? 'bg-blue-600 justify-end' : 'bg-theme-default justify-start'
-                  }`}
-                >
-                  <span className="w-3.5 h-3.5 rounded-full bg-white shadow-xs" />
-                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onUpdateSettings({ ...settings, openInNewTab: false })}
+                    className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border text-xs transition-all cursor-pointer ${
+                      !settings.openInNewTab
+                        ? 'bg-blue-600/15 border-blue-500 text-blue-500 font-semibold shadow-xs'
+                        : 'bg-theme-surface border-theme-default text-theme-muted hover:text-theme-primary'
+                    }`}
+                  >
+                    <span>当前本页跳转 (默认推荐)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onUpdateSettings({ ...settings, openInNewTab: true })}
+                    className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border text-xs transition-all cursor-pointer ${
+                      settings.openInNewTab
+                        ? 'bg-blue-600/15 border-blue-500 text-blue-500 font-semibold shadow-xs'
+                        : 'bg-theme-surface border-theme-default text-theme-muted hover:text-theme-primary'
+                    }`}
+                  >
+                    <span>新标签页打开</span>
+                  </button>
+                </div>
               </div>
 
               {/* Pinned Dock Visibility */}
@@ -868,6 +898,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span>选择文件导入</span>
                 </button>
               </div>
+
+              {/* PWA Version & Service Worker Check */}
+              <div className="p-4 rounded-2xl bg-theme-base border border-theme-default flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-theme-primary flex items-center gap-2">
+                    <span>PWA 应用离线与更新</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-medium">右下角模态框提醒</span>
+                  </div>
+                  <div className="text-[11px] text-theme-muted mt-0.5">当检测到新版本发布时，将在右下角弹出升级模态框</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+                      try {
+                        const reg = await navigator.serviceWorker.getRegistration();
+                        if (reg) {
+                          await reg.update();
+                          setPwaCheckStatus('已检查 Service Worker：若有更新将在右下角弹出模态框');
+                        } else {
+                          setPwaCheckStatus('已是最新版本');
+                        }
+                      } catch {
+                        setPwaCheckStatus('检查完成，暂无新版本就绪');
+                      }
+                      setTimeout(() => setPwaCheckStatus(null), 3500);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-theme-surface hover:bg-theme-surface-hover border border-theme-default text-theme-primary rounded-xl font-medium transition-colors cursor-pointer shadow-xs shrink-0 self-start sm:self-auto"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>检查版本更新</span>
+                </button>
+              </div>
+              {pwaCheckStatus && (
+                <div className="text-[11px] text-blue-500 font-medium bg-blue-500/10 p-2.5 rounded-xl border border-blue-500/20 animate-in fade-in">
+                  {pwaCheckStatus}
+                </div>
+              )}
 
               {/* Clear Analytics Database (IndexedDB) */}
               <div className="p-4 rounded-2xl bg-theme-base border border-theme-default space-y-3">

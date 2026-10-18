@@ -3,7 +3,6 @@ import { FaviconProvider, NavCategory, NavLinkItem } from '../types/navigation';
 import { getFaviconUrl, getInitialColor, getDomain } from '../utils/urlUtils';
 import { 
   Star, 
-  ExternalLink, 
   MoreVertical, 
   Edit, 
   Trash2, 
@@ -50,14 +49,14 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
   const getGridColsClass = () => {
     switch (columnsCount) {
       case 3:
-        return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
+        return 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3';
       case 5:
         return 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5';
       case 6:
-        return 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6';
+        return 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6';
       case 4:
       default:
-        return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
+        return 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4';
     }
   };
 
@@ -234,18 +233,6 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
               {link.description}
             </p>
           )}
-        </div>
-
-        {/* Card Footer: Click indicator or Launch icon */}
-        <div className="mt-3 pt-2 border-t border-theme-subtle flex items-center justify-between text-[11px] text-theme-muted">
-          <span className="flex items-center gap-1">
-            <span>访问:</span>
-            <span className="font-mono tabular-nums text-theme-secondary font-medium">{link.clicks || 0}</span>
-          </span>
-          <span className="flex items-center gap-0.5 text-theme-muted group-hover:text-theme-primary transition-colors">
-            <span>前往</span>
-            <ExternalLink className="w-3 h-3" />
-          </span>
         </div>
       </div>
     );

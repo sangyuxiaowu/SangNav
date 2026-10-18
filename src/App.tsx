@@ -27,6 +27,7 @@ import { CategoryModal } from './components/CategoryModal';
 import { SettingsModal } from './components/SettingsModal';
 import { SecretLockModal } from './components/SecretLockModal';
 import { SecretSettingsModal } from './components/SecretSettingsModal';
+import { PWAUpdateModal } from './components/PWAUpdateModal';
 import { formatUrl, getFaviconUrl, isBrowserInternalUrl } from './utils/urlUtils';
 import { recordVisit, seedInitialAnalyticsIfEmpty } from './services/analyticsDb';
 import { deleteCachedFavicon } from './services/faviconDb';
@@ -130,6 +131,12 @@ export default function App() {
     ) {
       newSettings.customWallpaperUrl = 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?auto=format&fit=crop&w=2560&q=80';
       changed = true;
+    }
+
+    if (!localStorage.getItem('sangnav_default_target_initialized')) {
+      newSettings.openInNewTab = false;
+      changed = true;
+      localStorage.setItem('sangnav_default_target_initialized', 'true');
     }
 
     if (changed) {
@@ -550,7 +557,9 @@ export default function App() {
       )}
 
       {/* Main Content Viewport */}
-      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-7 relative z-10">
+      <main className={`flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-7 relative z-10 transition-all duration-300 ${
+        settings.columnsCount === 6 ? 'max-w-[1440px]' : settings.columnsCount === 5 ? 'max-w-7xl' : 'max-w-6xl'
+      }`}>
         {/* Hero Section: Live Clock & Weather Greeting */}
         <HeroSection
           weather={weather}
@@ -789,6 +798,9 @@ export default function App() {
           setActiveCategoryId('all');
         }}
       />
+
+      {/* PWA Version Update Bottom-Right Modal */}
+      <PWAUpdateModal />
     </div>
   );
 }

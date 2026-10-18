@@ -207,15 +207,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, favico
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-3.5 rounded-2xl bg-theme-base border border-theme-default space-y-1">
           <div className="text-[11px] text-theme-muted flex items-center justify-between">
-            <span>总访问站点</span>
+            <span>总访问总计数</span>
             <Globe className="w-3.5 h-3.5 text-blue-500" />
           </div>
           <div className="text-xl font-bold font-mono text-theme-primary">
-            {data?.totalVisits ?? 0}
+            {Math.max(data?.totalVisits ?? 0, links.reduce((sum, l) => sum + (l.clicks || 0), 0))}
             <span className="text-xs font-normal text-theme-muted ml-1">次</span>
           </div>
           <div className="text-[10px] text-theme-muted truncate">
-            {data?.topLinks.length ? `已记录 ${data.topLinks.length} 个独立站点` : '等待访问记录'}
+            {data?.topLinks.length ? `覆盖 ${data.topLinks.length} 个独立站点` : '点击书签开始实时统计'}
           </div>
         </div>
 

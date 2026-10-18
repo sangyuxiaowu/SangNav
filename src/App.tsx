@@ -55,6 +55,7 @@ export default function App() {
   const [defaultCategoryForNewLink, setDefaultCategoryForNewLink] = useState<string | undefined>();
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data'>('appearance');
   const [browserUrlNotice, setBrowserUrlNotice] = useState<{
     url: string;
     status: 'copying' | 'copied' | 'failed';
@@ -141,6 +142,35 @@ export default function App() {
 
     if (changed) {
       setSettings(newSettings);
+    }
+  }, []);
+
+  // Backfill search engine properties (enabled, placeholder, color) if missing from older data
+  useEffect(() => {
+    let changed = false;
+    const defaultEnginesMap = new Map(DEFAULT_SEARCH_ENGINES.map(e => [e.id, e]));
+    const updated = engines.map((eng) => {
+      let itemChanged = false;
+      const fallback = defaultEnginesMap.get(eng.id);
+      const newItem = { ...eng };
+      if (newItem.enabled === undefined) {
+        newItem.enabled = fallback?.enabled !== undefined ? fallback.enabled : true;
+        itemChanged = true;
+      }
+      if (!newItem.placeholder) {
+        newItem.placeholder = fallback?.placeholder || `在 ${newItem.name} 中搜索...`;
+        itemChanged = true;
+      }
+      if (!newItem.color) {
+        newItem.color = fallback?.color || '#2563EB';
+        itemChanged = true;
+      }
+      if (itemChanged) changed = true;
+      return newItem;
+    });
+
+    if (changed) {
+      setEngines(updated);
     }
   }, []);
 
@@ -578,6 +608,10 @@ export default function App() {
           links={currentLinks}
           onSelectLink={handleOpenLink}
           onFilterLinks={setSearchFilterQuery}
+          onOpenSearchSettings={() => {
+            setSettingsInitialTab('search');
+            setIsSettingsModalOpen(true);
+          }}
         />
 
         {/* Pinned Bookmarks Dock (if enabled) */}
@@ -699,7 +733,10 @@ export default function App() {
           setDefaultCategoryForNewLink(activeCategoryId === 'all' ? undefined : activeCategoryId);
           setIsLinkModalOpen(true);
         }}
-        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        onOpenSettings={() => {
+          setSettingsInitialTab('appearance');
+          setIsSettingsModalOpen(true);
+        }}
         isSecretMode={isSecretMode}
         onExitSecretMode={() => {
           setIsSecretMode(false);
@@ -711,7 +748,7 @@ export default function App() {
       {/* Footer */}
       <footer className="w-full border-t border-theme-subtle py-6 text-center text-xs text-theme-muted space-y-1 relative z-10">
         <div className="flex items-center justify-center gap-3">
-          <span>星澜导航 · 极简个人起始页</span>
+          <span>轻启 SangNav · 极简个人起始页</span>
           <span>·</span>
           <span>按 Alt+N 快捷新建网址</span>
           <span>·</span>
@@ -757,6 +794,7 @@ export default function App() {
         links={links}
         onImportAllData={handleImportAllData}
         onResetToDefaults={handleResetToDefaults}
+        initialTab={settingsInitialTab}
       />
 
       {/* Secret Pattern Lock Modal */}

@@ -25,6 +25,7 @@ export interface SearchEngine {
   placeholder: string;
   shortcut: string;
   color?: string;
+  enabled?: boolean;
 }
 
 export interface WeatherData {

@@ -26,7 +26,11 @@ import {
   Sliders,
   Sparkles,
   BarChart3,
-  RefreshCw
+  RefreshCw,
+  ArrowUp,
+  ArrowDown,
+  GripVertical,
+  Pencil
 } from 'lucide-react';
 import { AnalyticsView } from './AnalyticsView';
 import { clearAllAnalytics } from '../services/analyticsDb';
@@ -37,6 +41,22 @@ import {
   DEFAULT_SETTINGS,
   WALLPAPER_PRESETS 
 } from '../data/defaultData';
+
+export const PRESET_ENGINE_COLORS = [
+  { name: '经典蓝', hex: '#2563EB' },
+  { name: '必应青', hex: '#008373' },
+  { name: '百度蓝', hex: '#2932e1' },
+  { name: '谷歌蓝', hex: '#4285F4' },
+  { name: '哔哩粉蓝', hex: '#00aeec' },
+  { name: '知乎蓝', hex: '#0066FF' },
+  { name: '翠玉绿', hex: '#10B981' },
+  { name: '豆瓣绿', hex: '#007722' },
+  { name: '优雅紫', hex: '#7C3AED' },
+  { name: '珊瑚粉', hex: '#EC4899' },
+  { name: '琥珀金', hex: '#F59E0B' },
+  { name: '落日橙', hex: '#EA580C' },
+  { name: '极客黑', hex: '#24292e' },
+];
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -54,6 +74,7 @@ interface SettingsModalProps {
     settings: UserSettings;
   }) => void;
   onResetToDefaults: () => void;
+  initialTab?: 'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data';
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -67,6 +88,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   links,
   onImportAllData,
   onResetToDefaults,
+  initialTab,
 }) => {
   const [activeTab, setActiveTab] = useState<'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data'>('appearance');
   const [importStatus, setImportStatus] = useState<string | null>(null);
@@ -79,10 +101,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [engineName, setEngineName] = useState('');
   const [engineUrl, setEngineUrl] = useState('');
   const [engineShortcut, setEngineShortcut] = useState('');
+  const [enginePlaceholder, setEnginePlaceholder] = useState('');
+  const [engineColor, setEngineColor] = useState('#2563EB');
+  const [engineEnabled, setEngineEnabled] = useState(true);
   const [engineError, setEngineError] = useState('');
+
+  // Editing existing engine state
+  const [editingEngineId, setEditingEngineId] = useState<string | null>(null);
+  const [editEngineName, setEditEngineName] = useState('');
+  const [editEngineUrl, setEditEngineUrl] = useState('');
+  const [editEngineShortcut, setEditEngineShortcut] = useState('');
+  const [editEnginePlaceholder, setEditEnginePlaceholder] = useState('');
+  const [editEngineColor, setEditEngineColor] = useState('#2563EB');
+
+  // Drag and drop state
+  const [draggedEngineIndex, setDraggedEngineIndex] = useState<number | null>(null);
 
   // Wallpaper state
   const [wallpaperUrlInput, setWallpaperUrlInput] = useState(settings.customWallpaperUrl || '');
+
+  useEffect(() => {
+    if (isOpen && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   useEffect(() => {
     setWallpaperUrlInput(settings.customWallpaperUrl || '');
@@ -186,14 +228,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           throw new Error('备份文件格式不符合规范，缺少必要数据');
         }
 
+        const importedEngines = Array.isArray(parsed.engines) && parsed.engines.length > 0 
+          ? parsed.engines.map((eng: any) => ({
+              ...eng,
+              placeholder: eng.placeholder || `在 ${eng.name || '搜索引擎'} 中搜索...`,
+              color: eng.color || '#2563EB',
+              enabled: eng.enabled !== false,
+            }))
+          : engines;
+
         onImportAllData({
           categories: parsed.categories,
           links: parsed.links,
-          engines: Array.isArray(parsed.engines) && parsed.engines.length > 0 ? parsed.engines : engines,
+          engines: importedEngines,
           settings: parsed.settings ? { ...settings, ...parsed.settings } : settings,
         });
 
-        setImportStatus('数据导入成功！已恢复所有书签与分类');
+        setImportStatus('数据导入成功！已恢复所有书签、分类与搜索引擎设置');
         setTimeout(() => setImportStatus(null), 3000);
       } catch (err: any) {
         setImportStatus(`导入失败: ${err.message || '未知错误'}`);
@@ -203,7 +254,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     e.target.value = '';
   };
 
-  // Add custom search engine
+  // Reorder engines (Move up / Move down)
+  const handleMoveEngine = (index: number, direction: 'up' | 'down') => {
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === engines.length - 1) return;
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    const next = [...engines];
+    const [moved] = next.splice(index, 1);
+    next.splice(targetIndex, 0, moved);
+    onUpdateEngines(next);
+  };
+
+  // Drag and drop reordering
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedEngineIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedEngineIndex === null || draggedEngineIndex === targetIndex) return;
+    const next = [...engines];
+    const [moved] = next.splice(draggedEngineIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    setDraggedEngineIndex(null);
+    onUpdateEngines(next);
+  };
+
+  // Toggle engine enabled slider
+  const handleToggleEngineEnabled = (id: string) => {
+    const target = engines.find(e => e.id === id);
+    const isCurrentlyEnabled = target?.enabled !== false;
+    const enabledCount = engines.filter(e => e.enabled !== false).length;
+
+    if (isCurrentlyEnabled && enabledCount <= 1) {
+      setEngineError('至少需要保留一个启用的搜索引擎');
+      setTimeout(() => setEngineError(''), 3000);
+      return;
+    }
+
+    const next = engines.map(e => {
+      if (e.id === id) {
+        return { ...e, enabled: !isCurrentlyEnabled };
+      }
+      return e;
+    });
+    onUpdateEngines(next);
+
+    // If default engine is disabled, change default to first remaining enabled engine
+    if (settings.defaultEngineId === id && isCurrentlyEnabled) {
+      const remaining = next.find(e => e.id !== id && e.enabled !== false);
+      if (remaining) {
+        onUpdateSettings({ ...settings, defaultEngineId: remaining.id });
+      }
+    }
+  };
+
+  // Add custom search engine with custom placeholder & color
   const handleAddEngine = (e: React.FormEvent) => {
     e.preventDefault();
     if (!engineName.trim() || !engineUrl.trim()) {
@@ -215,19 +328,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       return;
     }
 
+    const customPlaceholder = enginePlaceholder.trim() || `在 ${engineName.trim()} 中搜索...`;
+
     const newEngine: SearchEngine = {
       id: `engine-${Date.now()}`,
       name: engineName.trim(),
       url: engineUrl.trim(),
       iconName: 'custom',
-      placeholder: `在 ${engineName.trim()} 中搜索...`,
+      placeholder: customPlaceholder,
       shortcut: engineShortcut.trim().toUpperCase() || engineName.trim().charAt(0).toUpperCase(),
+      color: engineColor || '#2563EB',
+      enabled: engineEnabled,
     };
 
     onUpdateEngines([...engines, newEngine]);
     setEngineName('');
     setEngineUrl('');
     setEngineShortcut('');
+    setEnginePlaceholder('');
+    setEngineColor('#2563EB');
+    setEngineEnabled(true);
+    setEngineError('');
+  };
+
+  // Start editing existing engine
+  const handleStartEditEngine = (engine: SearchEngine) => {
+    setEditingEngineId(engine.id);
+    setEditEngineName(engine.name);
+    setEditEngineUrl(engine.url);
+    setEditEngineShortcut(engine.shortcut);
+    setEditEnginePlaceholder(engine.placeholder || `在 ${engine.name} 中搜索...`);
+    setEditEngineColor(engine.color || '#2563EB');
+  };
+
+  // Save edits to existing engine
+  const handleSaveEditEngine = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEngineId) return;
+    if (!editEngineName.trim() || !editEngineUrl.trim()) {
+      setEngineError('请填写搜索引擎名称和查询 URL');
+      return;
+    }
+    if (!editEngineUrl.includes('%s')) {
+      setEngineError('搜索 URL 必须包含 %s 作为查询词占位符');
+      return;
+    }
+
+    const next = engines.map(e => {
+      if (e.id === editingEngineId) {
+        return {
+          ...e,
+          name: editEngineName.trim(),
+          url: editEngineUrl.trim(),
+          shortcut: editEngineShortcut.trim().toUpperCase() || editEngineName.trim().charAt(0).toUpperCase(),
+          placeholder: editEnginePlaceholder.trim() || `在 ${editEngineName.trim()} 中搜索...`,
+          color: editEngineColor,
+        };
+      }
+      return e;
+    });
+
+    onUpdateEngines(next);
+    setEditingEngineId(null);
+    setEngineError('');
+  };
+
+  const handleCancelEditEngine = () => {
+    setEditingEngineId(null);
     setEngineError('');
   };
 
@@ -236,7 +403,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const next = engines.filter((e) => e.id !== id);
     onUpdateEngines(next);
     if (settings.defaultEngineId === id) {
-      onUpdateSettings({ ...settings, defaultEngineId: next[0].id });
+      const fallback = next.find(e => e.enabled !== false) || next[0];
+      onUpdateSettings({ ...settings, defaultEngineId: fallback.id });
     }
   };
 
@@ -739,97 +907,445 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {activeTab === 'search' && (
             <div className="space-y-5">
               {/* Default Engine */}
-              <div className="space-y-2">
-                <label className="font-semibold text-theme-primary">默认搜索引擎</label>
+              <div className="p-4 rounded-2xl bg-theme-base border border-theme-default space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-theme-primary">默认搜索引擎</label>
+                  <span className="text-[11px] text-theme-muted">启动与回车搜索优先使用的引擎</span>
+                </div>
                 <select
                   value={settings.defaultEngineId}
                   onChange={(e) => onUpdateSettings({ ...settings, defaultEngineId: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-theme-base border border-theme-default focus:border-blue-500 text-theme-primary text-xs focus:outline-none shadow-xs"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-theme-surface border border-theme-default focus:border-blue-500 text-theme-primary text-xs focus:outline-none shadow-xs"
                 >
                   {engines.map((e) => (
                     <option key={e.id} value={e.id} className="bg-theme-surface text-theme-primary">
-                      {e.name} ({e.url.substring(0, 35)}...)
+                      {e.name} {e.enabled === false ? '（已停用）' : ''} - {e.url.substring(0, 45)}...
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* Existing Engines */}
-              <div className="space-y-2">
-                <label className="font-semibold text-theme-primary">现有引擎列表 ({engines.length})</label>
-                <div className="space-y-1.5">
-                  {engines.map((eng) => (
-                    <div
-                      key={eng.id}
-                      className="flex items-center justify-between p-2.5 rounded-xl bg-theme-base border border-theme-default"
-                    >
-                      <div className="min-w-0 flex-1 mr-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-theme-primary">{eng.name}</span>
-                          <span className="px-1.5 py-0.5 rounded-md bg-theme-surface border border-theme-subtle font-mono text-[10px] text-theme-muted">
-                            {eng.shortcut}
-                          </span>
-                          {eng.id === settings.defaultEngineId && (
-                            <span className="text-[10px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded-md font-medium">
-                              默认
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-theme-muted font-mono truncate mt-0.5">
-                          {eng.url}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={engines.length <= 1}
-                        onClick={() => handleDeleteEngine(eng.id)}
-                        className="p-1.5 text-theme-muted hover:text-red-500 disabled:opacity-20 transition-colors cursor-pointer"
-                        title="删除该引擎"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+              {/* Existing Engines with Reordering & Enable Slider */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-theme-primary flex items-center gap-2">
+                      <span>搜索引擎管理与排序 ({engines.length})</span>
                     </div>
-                  ))}
+                    <div className="text-[11px] text-theme-muted mt-0.5">
+                      支持点击上下箭头排序、右侧滑块启停引擎及自定义样式
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-md font-medium shrink-0">
+                    已启用: {engines.filter(e => e.enabled !== false).length}/{engines.length}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {engines.map((eng, index) => {
+                    const isEnabled = eng.enabled !== false;
+                    const isEditing = editingEngineId === eng.id;
+
+                    return (
+                      <div
+                        key={eng.id}
+                        draggable={!editingEngineId}
+                        onDragStart={(e) => handleDragStart(e, index)}
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDrop(e, index)}
+                        className={`rounded-2xl border transition-all ${
+                          isEditing
+                            ? 'bg-theme-surface border-blue-500 ring-2 ring-blue-500/20 p-4 space-y-3'
+                            : isEnabled
+                            ? 'bg-theme-base border-theme-default p-3 hover:border-theme-hover'
+                            : 'bg-theme-base/60 border-theme-subtle opacity-70 p-3'
+                        }`}
+                      >
+                        {isEditing ? (
+                          /* Inline Edit Engine Form */
+                          <form onSubmit={handleSaveEditEngine} className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-theme-primary flex items-center gap-1.5">
+                                <Pencil className="w-3.5 h-3.5 text-blue-500" />
+                                <span>编辑搜索引擎：{eng.name}</span>
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditEngine}
+                                  className="px-2.5 py-1 text-xs text-theme-muted hover:text-theme-primary rounded-lg transition-colors cursor-pointer"
+                                >
+                                  取消
+                                </button>
+                                <button
+                                  type="submit"
+                                  className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer shadow-xs"
+                                >
+                                  保存修改
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[11px] text-theme-muted block mb-1">引擎名称</label>
+                                <input
+                                  type="text"
+                                  value={editEngineName}
+                                  onChange={(e) => setEditEngineName(e.target.value)}
+                                  placeholder="引擎名称"
+                                  className="w-full px-3 py-1.5 rounded-xl bg-theme-base border border-theme-default focus:border-blue-500 text-theme-primary text-xs focus:outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[11px] text-theme-muted block mb-1">快捷键标识</label>
+                                <input
+                                  type="text"
+                                  value={editEngineShortcut}
+                                  onChange={(e) => setEditEngineShortcut(e.target.value)}
+                                  placeholder="快捷键 (如: G)"
+                                  maxLength={3}
+                                  className="w-full px-3 py-1.5 rounded-xl bg-theme-base border border-theme-default focus:border-blue-500 text-theme-primary text-xs focus:outline-none font-mono"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="text-[11px] text-theme-muted block mb-1">搜索 URL (包含 %s)</label>
+                              <input
+                                type="text"
+                                value={editEngineUrl}
+                                onChange={(e) => setEditEngineUrl(e.target.value)}
+                                placeholder="https://example.com/search?q=%s"
+                                className="w-full px-3 py-1.5 rounded-xl bg-theme-base border border-theme-default focus:border-blue-500 text-theme-primary text-xs focus:outline-none font-mono"
+                              />
+                            </div>
+
+                            {/* Placeholder Setting in Edit Mode */}
+                            <div>
+                              <label className="text-[11px] text-theme-muted block mb-1">
+                                搜索框占位提示词 (Placeholder)
+                              </label>
+                              <input
+                                type="text"
+                                value={editEnginePlaceholder}
+                                onChange={(e) => setEditEnginePlaceholder(e.target.value)}
+                                placeholder="输入搜索框内的提示文字..."
+                                className="w-full px-3 py-1.5 rounded-xl bg-theme-base border border-theme-default focus:border-blue-500 text-theme-primary text-xs focus:outline-none"
+                              />
+                            </div>
+
+                            {/* Color Setting in Edit Mode */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <label className="text-[11px] text-theme-muted">
+                                  主题辨识色 (Color)
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="inline-block px-2 py-0.5 rounded-md text-[10px] text-white font-medium shadow-xs"
+                                    style={{ backgroundColor: editEngineColor }}
+                                  >
+                                    效果预览
+                                  </span>
+                                  <span className="font-mono text-[10px] text-theme-muted">{editEngineColor}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {PRESET_ENGINE_COLORS.map((preset) => (
+                                  <button
+                                    key={preset.hex}
+                                    type="button"
+                                    onClick={() => setEditEngineColor(preset.hex)}
+                                    title={preset.name}
+                                    className={`w-6 h-6 rounded-full transition-transform cursor-pointer shadow-xs ${
+                                      editEngineColor === preset.hex ? 'scale-125 ring-2 ring-white dark:ring-neutral-200' : 'hover:scale-110'
+                                    }`}
+                                    style={{ backgroundColor: preset.hex }}
+                                  />
+                                ))}
+                                <div className="relative flex items-center">
+                                  <input
+                                    type="color"
+                                    value={editEngineColor}
+                                    onChange={(e) => setEditEngineColor(e.target.value)}
+                                    className="w-7 h-7 rounded-lg border border-theme-default bg-transparent cursor-pointer p-0.5"
+                                    title="自定义色彩选择器"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </form>
+                        ) : (
+                          /* Normal View of Engine Item */
+                          <div className="flex items-center justify-between gap-3">
+                            {/* Left Controls: Drag Handle, Order Buttons, Color Avatar */}
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {/* Drag Handle */}
+                              <div
+                                className="cursor-grab active:cursor-grabbing text-theme-muted hover:text-theme-primary p-0.5"
+                                title="拖拽调整顺序"
+                              >
+                                <GripVertical className="w-3.5 h-3.5" />
+                              </div>
+
+                              {/* Order Arrows */}
+                              <div className="flex flex-col gap-0.5 shrink-0">
+                                <button
+                                  type="button"
+                                  disabled={index === 0}
+                                  onClick={() => handleMoveEngine(index, 'up')}
+                                  className="p-1 rounded-md text-theme-muted hover:text-theme-primary hover:bg-theme-surface disabled:opacity-20 disabled:hover:bg-transparent transition-colors cursor-pointer"
+                                  title="向上移动调整顺序"
+                                  aria-label="上移"
+                                >
+                                  <ArrowUp className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={index === engines.length - 1}
+                                  onClick={() => handleMoveEngine(index, 'down')}
+                                  className="p-1 rounded-md text-theme-muted hover:text-theme-primary hover:bg-theme-surface disabled:opacity-20 disabled:hover:bg-transparent transition-colors cursor-pointer"
+                                  title="向下移动调整顺序"
+                                  aria-label="下移"
+                                >
+                                  <ArrowDown className="w-3 h-3" />
+                                </button>
+                              </div>
+
+                              {/* Engine Color Badge */}
+                              <div
+                                className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-[11px] font-bold shrink-0 shadow-xs"
+                                style={{ backgroundColor: eng.color || '#2563EB' }}
+                                title={`色彩标识: ${eng.color || '#2563EB'}`}
+                              >
+                                {eng.shortcut || eng.name.charAt(0)}
+                              </div>
+
+                              {/* Engine Info */}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-semibold text-theme-primary text-xs">{eng.name}</span>
+                                  <span className="px-1.5 py-0.5 rounded-md bg-theme-surface border border-theme-subtle font-mono text-[10px] text-theme-muted">
+                                    {eng.shortcut}
+                                  </span>
+                                  {eng.id === settings.defaultEngineId && (
+                                    <span className="text-[10px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded-md font-medium">
+                                      默认
+                                    </span>
+                                  )}
+                                  {!isEnabled && (
+                                    <span className="text-[10px] text-neutral-400 bg-neutral-500/10 px-1.5 py-0.5 rounded-md font-medium">
+                                      已停用
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-theme-muted font-mono truncate mt-0.5">
+                                  {eng.url}
+                                </div>
+                                {eng.placeholder && (
+                                  <div className="text-[10px] text-theme-muted/80 truncate mt-0.5">
+                                    占位提示: "{eng.placeholder}"
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Right Controls: Enable Toggle Slider, Edit, Delete */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              {/* Enable Slider Switch */}
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[10px] font-medium hidden sm:inline ${isEnabled ? 'text-emerald-500' : 'text-theme-muted'}`}>
+                                  {isEnabled ? '已启用' : '已停用'}
+                                </span>
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={isEnabled}
+                                  onClick={() => handleToggleEngineEnabled(eng.id)}
+                                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                    isEnabled ? 'bg-emerald-500' : 'bg-neutral-600/40'
+                                  }`}
+                                  title={isEnabled ? '已启用 (点击滑块停用)' : '已停用 (点击滑块启用)'}
+                                >
+                                  <span
+                                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                                      isEnabled ? 'translate-x-4' : 'translate-x-0'
+                                    }`}
+                                  />
+                                </button>
+                              </div>
+
+                              {/* Edit Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditEngine(eng)}
+                                className="p-1.5 text-theme-muted hover:text-blue-500 hover:bg-theme-surface rounded-lg transition-colors cursor-pointer"
+                                title="编辑引擎、自定义提示词与色彩"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Delete Button */}
+                              <button
+                                type="button"
+                                disabled={engines.length <= 1}
+                                onClick={() => handleDeleteEngine(eng.id)}
+                                className="p-1.5 text-theme-muted hover:text-red-500 disabled:opacity-20 hover:bg-theme-surface rounded-lg transition-colors cursor-pointer"
+                                title="删除该引擎"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Add Custom Engine */}
-              <form onSubmit={handleAddEngine} className="p-3.5 rounded-2xl bg-theme-base border border-theme-default space-y-3">
-                <div className="font-semibold text-theme-primary">添加自定义引擎</div>
+              {/* Add Custom Engine with placeholder & color settings */}
+              <form onSubmit={handleAddEngine} className="p-4 rounded-2xl bg-theme-base border border-theme-default space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-theme-primary flex items-center gap-1.5">
+                    <Plus className="w-4 h-4 text-blue-500" />
+                    <span>添加自定义搜索引擎</span>
+                  </div>
+                  <span className="text-[11px] text-theme-muted">开放占位提示词与辨识色彩设置</span>
+                </div>
+
                 {engineError && (
-                  <div className="text-red-500 text-[11px] bg-red-500/10 p-2 rounded-lg border border-red-500/20">
+                  <div className="text-red-500 text-[11px] bg-red-500/10 p-2.5 rounded-xl border border-red-500/20">
                     {engineError}
                   </div>
                 )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="text-[11px] text-theme-muted block mb-1 font-medium">引擎名称 *</label>
+                    <input
+                      type="text"
+                      value={engineName}
+                      onChange={(e) => setEngineName(e.target.value)}
+                      placeholder="例如: 秘塔AI、夸克搜索"
+                      className="w-full px-3 py-2 rounded-xl bg-theme-surface border border-theme-default focus:border-blue-500 text-theme-primary placeholder-theme-muted text-xs focus:outline-none shadow-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-theme-muted block mb-1 font-medium">快捷键标识</label>
+                    <input
+                      type="text"
+                      value={engineShortcut}
+                      onChange={(e) => setEngineShortcut(e.target.value)}
+                      placeholder="例如: M (默认取名称首字)"
+                      maxLength={3}
+                      className="w-full px-3 py-2 rounded-xl bg-theme-surface border border-theme-default focus:border-blue-500 text-theme-primary placeholder-theme-muted text-xs focus:outline-none font-mono shadow-xs"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-theme-muted block mb-1 font-medium">搜索 URL (必须含 %s 占位符) *</label>
                   <input
                     type="text"
-                    value={engineName}
-                    onChange={(e) => setEngineName(e.target.value)}
-                    placeholder="引擎名称 (如: 夸克搜索)"
-                    className="px-3 py-2 rounded-xl bg-theme-surface border border-theme-default focus:border-blue-500 text-theme-primary placeholder-theme-muted text-xs focus:outline-none shadow-xs"
-                  />
-                  <input
-                    type="text"
-                    value={engineShortcut}
-                    onChange={(e) => setEngineShortcut(e.target.value)}
-                    placeholder="快捷键 (如: K)"
-                    maxLength={2}
-                    className="px-3 py-2 rounded-xl bg-theme-surface border border-theme-default focus:border-blue-500 text-theme-primary placeholder-theme-muted text-xs focus:outline-none font-mono shadow-xs"
+                    value={engineUrl}
+                    onChange={(e) => setEngineUrl(e.target.value)}
+                    placeholder="例如: https://metaso.cn/?q=%s 或 https://quark.sm.cn/s?q=%s"
+                    className="w-full px-3 py-2 rounded-xl bg-theme-surface border border-theme-default focus:border-blue-500 text-theme-primary placeholder-theme-muted text-xs focus:outline-none font-mono shadow-xs"
                   />
                 </div>
-                <input
-                  type="text"
-                  value={engineUrl}
-                  onChange={(e) => setEngineUrl(e.target.value)}
-                  placeholder="搜索 URL (必须含 %s，如: https://quark.sm.cn/s?q=%s)"
-                  className="w-full px-3 py-2 rounded-xl bg-theme-surface border border-theme-default focus:border-blue-500 text-theme-primary placeholder-theme-muted text-xs focus:outline-none font-mono shadow-xs"
-                />
+
+                {/* Custom Placeholder Setting */}
+                <div>
+                  <label className="text-[11px] text-theme-muted block mb-1 font-medium">
+                    搜索框占位提示词 (Placeholder)
+                  </label>
+                  <input
+                    type="text"
+                    value={enginePlaceholder}
+                    onChange={(e) => setEnginePlaceholder(e.target.value)}
+                    placeholder={engineName.trim() ? `在 ${engineName.trim()} 中深入探索... (留空自动生成)` : '例如: 深入探索全网知识与前沿科技...'}
+                    className="w-full px-3 py-2 rounded-xl bg-theme-surface border border-theme-default focus:border-blue-500 text-theme-primary placeholder-theme-muted text-xs focus:outline-none shadow-xs"
+                  />
+                  <div className="text-[10px] text-theme-muted mt-1">
+                    未输入关键词时在主页搜索框显示的个性化引导文案
+                  </div>
+                </div>
+
+                {/* Custom Color Setting */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] text-theme-muted font-medium">
+                      引擎主题辨识色彩 (Color)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] text-white font-medium shadow-xs"
+                        style={{ backgroundColor: engineColor }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                        <span>{engineName.trim() || '新引擎'}</span>
+                      </span>
+                      <span className="font-mono text-[10px] text-theme-muted">{engineColor}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {PRESET_ENGINE_COLORS.map((preset) => (
+                      <button
+                        key={preset.hex}
+                        type="button"
+                        onClick={() => setEngineColor(preset.hex)}
+                        title={preset.name}
+                        className={`w-6 h-6 rounded-full transition-transform cursor-pointer shadow-xs ${
+                          engineColor === preset.hex ? 'scale-125 ring-2 ring-blue-500' : 'hover:scale-110'
+                        }`}
+                        style={{ backgroundColor: preset.hex }}
+                      />
+                    ))}
+                    <div className="flex items-center gap-1.5 ml-1">
+                      <input
+                        type="color"
+                        value={engineColor}
+                        onChange={(e) => setEngineColor(e.target.value)}
+                        className="w-7 h-7 rounded-lg border border-theme-default bg-transparent cursor-pointer p-0.5"
+                        title="点击选择任意自定义颜色"
+                      />
+                      <span className="text-[11px] text-theme-muted">自选色盘</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Engine Enabled Switch for new engine */}
+                <div className="flex items-center justify-between pt-1 border-t border-theme-subtle">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-theme-primary font-medium">添加后立即启用</span>
+                    <span className="text-[11px] text-theme-muted">是否在主页搜索栏标签中直接显示</span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={engineEnabled}
+                    onClick={() => setEngineEnabled(!engineEnabled)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      engineEnabled ? 'bg-emerald-500' : 'bg-neutral-600/40'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                        engineEnabled ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
                 <button
                   type="submit"
-                  className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors cursor-pointer shadow-xs"
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors cursor-pointer shadow-xs text-xs flex items-center justify-center gap-1.5"
                 >
-                  添加引擎
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>添加至搜索引擎列表</span>
                 </button>
               </form>
             </div>

@@ -1,5 +1,5 @@
 {
-  "name": "星澜导航 - 个人智能极简起始页",
+  "name": "轻启 SangNav - 个人智能极简起始页",
   "description": "高效优美的个人导航起始页，集成实时IP天气、多引擎聚合搜索、自定义网址管理、分类编排与数据备份功能。",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

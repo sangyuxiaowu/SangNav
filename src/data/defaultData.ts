@@ -9,6 +9,7 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngine[] = [
     placeholder: '在必应中畅快探索世界...',
     shortcut: 'B',
     color: '#008373',
+    enabled: true,
   },
   {
     id: 'baidu',
@@ -18,6 +19,17 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngine[] = [
     placeholder: '百度一下，你就知道...',
     shortcut: 'D',
     color: '#2932e1',
+    enabled: true,
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    url: 'https://chat.deepseek.com?q=%s&autosend=1&search=1&thinking=1',
+    iconName: 'deepseek',
+    placeholder: '深度求索通用大模型与推理引擎...',
+    shortcut: 'E',
+    color: '#FF6600',
+    enabled: true,
   },
   {
     id: 'google',
@@ -27,6 +39,7 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngine[] = [
     placeholder: 'Google 智能全球搜索...',
     shortcut: 'G',
     color: '#4285F4',
+    enabled: true,
   },
   {
     id: 'github',
@@ -36,6 +49,7 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngine[] = [
     placeholder: '搜索开源仓库、代码与开发者...',
     shortcut: 'H',
     color: '#24292e',
+    enabled: true,
   },
   {
     id: 'bilibili',
@@ -45,6 +59,7 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngine[] = [
     placeholder: '搜索视频、番剧、UP主或游戏...',
     shortcut: 'P',
     color: '#00aeec',
+    enabled: true,
   },
   {
     id: 'zhihu',
@@ -54,6 +69,7 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngine[] = [
     placeholder: '有问题，就会有答案...',
     shortcut: 'Z',
     color: '#0066FF',
+    enabled: true,
   },
   {
     id: 'douban',
@@ -63,6 +79,7 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngine[] = [
     placeholder: '搜索书籍、电影、音乐、小组...',
     shortcut: 'M',
     color: '#007722',
+    enabled: true,
   },
 ];
 

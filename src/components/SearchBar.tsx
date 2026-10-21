@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Search, 
   X, 
@@ -7,7 +7,8 @@ import {
   Globe, 
   History, 
   Trash2,
-  ExternalLink 
+  ExternalLink,
+  Settings 
 } from 'lucide-react';
 import { SearchEngine, NavLinkItem } from '../types/navigation';
 import { recordSearch } from '../services/analyticsDb';
@@ -20,6 +21,7 @@ interface SearchBarProps {
   links: NavLinkItem[];
   onSelectLink: (link: NavLinkItem) => void;
   onFilterLinks: (query: string) => void;
+  onOpenSearchSettings?: () => void;
 }
 
 export const SearchBar: React.FC<SearchBarProps> = ({
@@ -30,6 +32,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   links,
   onSelectLink,
   onFilterLinks,
+  onOpenSearchSettings,
 }) => {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
@@ -45,7 +48,20 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const activeEngine = engines.find(e => e.id === activeEngineId) || engines[0];
+  // Filter only enabled search engines (defaults to all if enabled is true/undefined)
+  const enabledEngines = useMemo(() => {
+    const list = engines.filter((e) => e.enabled !== false);
+    return list.length > 0 ? list : engines;
+  }, [engines]);
+
+  const activeEngine = enabledEngines.find(e => e.id === activeEngineId) || enabledEngines[0] || engines[0];
+
+  // Auto-switch to first enabled engine if active engine gets disabled
+  useEffect(() => {
+    if (enabledEngines.length > 0 && !enabledEngines.some(e => e.id === activeEngineId)) {
+      onSelectEngine(enabledEngines[0].id);
+    }
+  }, [enabledEngines, activeEngineId, onSelectEngine]);
 
   // Save history on change
   const saveHistoryItem = (term: string) => {
@@ -133,9 +149,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   return (
     <div className="w-full max-w-2xl mx-auto space-y-3">
       {/* Search Engines Tabs */}
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 max-w-full">
-          {engines.map((engine) => {
+      <div className="flex items-center justify-between px-1 gap-2">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 min-w-0 flex-1">
+          {enabledEngines.map((engine) => {
             const isActive = engine.id === activeEngineId && searchMode === 'web';
             return (
               <button
@@ -146,35 +162,65 @@ export const SearchBar: React.FC<SearchBarProps> = ({
                   onSelectEngine(engine.id);
                   inputRef.current?.focus();
                 }}
+                style={
+                  isActive && engine.color
+                    ? {
+                        backgroundColor: engine.color,
+                        color: '#ffffff',
+                        boxShadow: `0 2px 10px ${engine.color}45`,
+                      }
+                    : undefined
+                }
                 className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full transition-all shrink-0 cursor-pointer ${
                   isActive
-                    ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                    ? !engine.color ? 'bg-blue-600 text-white shadow-xs font-semibold' : 'font-semibold text-white'
                     : 'text-theme-secondary hover:text-theme-primary hover:bg-theme-surface'
                 }`}
               >
+                {engine.color && (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: isActive ? '#ffffff' : engine.color }}
+                  />
+                )}
                 <span>{engine.name}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Local Bookmarks Quick Filter Switcher */}
-        <button
-          type="button"
-          onClick={() => {
-            setSearchMode(searchMode === 'web' ? 'local' : 'web');
-            inputRef.current?.focus();
-          }}
-          className={`hidden sm:flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full transition-colors cursor-pointer shrink-0 ml-2 ${
-            searchMode === 'local'
-              ? 'bg-blue-600 text-white shadow-xs font-semibold'
-              : 'text-theme-secondary hover:text-theme-primary hover:bg-theme-surface'
-          }`}
-          title="在已添加的书签中实时检索"
-        >
-          <Bookmark className="w-3 h-3" />
-          <span>书签检索</span>
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Local Bookmarks Quick Filter Switcher */}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchMode(searchMode === 'web' ? 'local' : 'web');
+              inputRef.current?.focus();
+            }}
+            className={`hidden sm:flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full transition-colors cursor-pointer shrink-0 ${
+              searchMode === 'local'
+                ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                : 'text-theme-secondary hover:text-theme-primary hover:bg-theme-surface'
+            }`}
+            title="在已添加的书签中实时检索"
+          >
+            <Bookmark className="w-3 h-3" />
+            <span>书签检索</span>
+          </button>
+
+          {/* Quick Search Engine Config Shortcut */}
+          {onOpenSearchSettings && (
+            <button
+              type="button"
+              onClick={onOpenSearchSettings}
+              className="p-1.5 text-theme-muted hover:text-theme-primary hover:bg-theme-surface rounded-full transition-colors cursor-pointer"
+              title="管理搜索引擎顺序、启用开关与自定义设置"
+              aria-label="管理搜索引擎"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Primary Input Container */}

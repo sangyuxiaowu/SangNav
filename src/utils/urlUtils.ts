@@ -48,6 +48,57 @@ export function formatUrl(input: string): string {
   return 'https://' + trimmed;
 }
 
+const FILE_EXT_REGEX = /\.(html?|php|jsp|asp|aspx|shtml|do|action|md|json|xml|txt)$/i;
+
+/**
+ * Resolves a sub-page URL against a parent card's URL.
+ * - Supports same-domain relative paths: `/xxx.html`, `xxx.html`, `?tab=orders`, `#section`
+ * - Supports full URLs or subdomains: `https://platform.deepseek.com/usage`, `platform.deepseek.com/usage`
+ */
+export function resolveSubLinkUrl(parentUrl: string, subUrl: string): string {
+  const trimmed = subUrl.trim();
+  if (!trimmed) return formatUrl(parentUrl);
+
+  // Explicit scheme (e.g., https://..., http://..., edge://...)
+  const schemeMatch = trimmed.match(/^([a-z][a-z\d+.-]*):/i);
+  if (schemeMatch && PRESERVED_URL_SCHEMES.has(schemeMatch[1].toLowerCase())) {
+    return trimmed;
+  }
+
+  const baseFormatted = formatUrl(parentUrl);
+
+  // Explicit relative path, query, hash, or protocol-relative URL
+  if (
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('./') ||
+    trimmed.startsWith('../') ||
+    trimmed.startsWith('?') ||
+    trimmed.startsWith('#')
+  ) {
+    try {
+      return new URL(trimmed, baseFormatted).href;
+    } catch {
+      return trimmed;
+    }
+  }
+
+  // Distinguish between a bare domain (e.g. "platform.deepseek.com/usage")
+  // and a bare relative page path (e.g. "xxx.html" or "user/orders.html")
+  const firstSegment = trimmed.split('/')[0];
+  const looksLikeDomain =
+    firstSegment.includes('.') && !FILE_EXT_REGEX.test(firstSegment);
+
+  if (looksLikeDomain) {
+    return 'https://' + trimmed;
+  }
+
+  try {
+    return new URL('/' + trimmed.replace(/^\/+/, ''), baseFormatted).href;
+  } catch {
+    return formatUrl(trimmed);
+  }
+}
+
 export function getDomain(url: string): string {
   try {
     const formatted = formatUrl(url);

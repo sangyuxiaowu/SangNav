@@ -104,6 +104,11 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     pinned: true,
     clicks: 0,
     createdAt: 1700000000000,
+    subLinks: [
+      { id: 'sub-gh-1', title: 'Trending', url: '/trending' },
+      { id: 'sub-gh-2', title: 'Pulls', url: '/pulls' },
+      { id: 'sub-gh-3', title: 'Issues', url: '/issues' },
+    ],
   },
   {
     id: 'link-2',
@@ -115,6 +120,11 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     pinned: true,
     clicks: 0,
     createdAt: 1700000001000,
+    subLinks: [
+      { id: 'sub-bili-1', title: '今日热门', url: '/v/popular/all' },
+      { id: 'sub-bili-2', title: '动态', url: 'https://t.bilibili.com' },
+      { id: 'sub-bili-3', title: '创作中心', url: 'https://member.bilibili.com' },
+    ],
   },
   {
     id: 'link-3',
@@ -126,6 +136,10 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     pinned: true,
     clicks: 0,
     createdAt: 1700000002000,
+    subLinks: [
+      { id: 'sub-zh-1', title: '今日热榜', url: '/hot' },
+      { id: 'sub-zh-2', title: '个人主页', url: '/people/edit' },
+    ],
   },
   {
     id: 'link-4',
@@ -137,6 +151,10 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     pinned: true,
     clicks: 0,
     createdAt: 1700000003000,
+    subLinks: [
+      { id: 'sub-sspai-1', title: 'Matrix', url: '/matrix' },
+      { id: 'sub-sspai-2', title: '派早报', url: '/tag/派早报' },
+    ],
   },
   {
     id: 'link-5',
@@ -148,6 +166,11 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     pinned: true,
     clicks: 0,
     createdAt: 1700000004000,
+    subLinks: [
+      { id: 'sub-v2-1', title: '最热', url: '/?tab=hot' },
+      { id: 'sub-v2-2', title: '技术', url: '/?tab=tech' },
+      { id: 'sub-v2-3', title: '创意', url: '/?tab=creative' },
+    ],
   },
   {
     id: 'link-6',
@@ -159,6 +182,11 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     pinned: true,
     clicks: 0,
     createdAt: 1700000005000,
+    subLinks: [
+      { id: 'sub-jj-1', title: '文章榜', url: '/hot/articles' },
+      { id: 'sub-jj-2', title: '沸点', url: '/pins' },
+      { id: 'sub-jj-3', title: '课程', url: '/course' },
+    ],
   },
 
   // AI 智创
@@ -172,6 +200,10 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     pinned: true,
     clicks: 0,
     createdAt: 1700000010000,
+    subLinks: [
+      { id: 'sub-oai-1', title: 'API 平台', url: 'https://platform.openai.com/usage' },
+      { id: 'sub-oai-2', title: '开发文档', url: 'https://platform.openai.com/docs' },
+    ],
   },
   {
     id: 'link-ai-2',
@@ -183,6 +215,9 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     pinned: true,
     clicks: 0,
     createdAt: 1700000011000,
+    subLinks: [
+      { id: 'sub-claude-1', title: 'Console', url: 'https://console.anthropic.com' },
+    ],
   },
   {
     id: 'link-ai-3',
@@ -194,6 +229,10 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     pinned: true,
     clicks: 0,
     createdAt: 1700000012000,
+    subLinks: [
+      { id: 'sub-ds-1', title: 'API 用量', url: 'https://platform.deepseek.com/usage' },
+      { id: 'sub-ds-2', title: 'API Keys', url: 'https://platform.deepseek.com/api_keys' },
+    ],
   },
   {
     id: 'link-ai-4',

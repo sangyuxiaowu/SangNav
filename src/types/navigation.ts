@@ -1,3 +1,9 @@
+export interface NavSubLink {
+  id: string;
+  title: string;
+  url: string;
+}
+
 export interface NavLinkItem {
   id: string;
   title: string;
@@ -8,6 +14,7 @@ export interface NavLinkItem {
   pinned?: boolean;
   clicks?: number;
   createdAt: number;
+  subLinks?: NavSubLink[];
 }
 
 export interface NavCategory {

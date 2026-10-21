@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   NavLinkItem, 
+  NavSubLink,
   NavCategory, 
   SearchEngine, 
   UserSettings, 
@@ -28,7 +29,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { SecretLockModal } from './components/SecretLockModal';
 import { SecretSettingsModal } from './components/SecretSettingsModal';
 import { PWAUpdateModal } from './components/PWAUpdateModal';
-import { formatUrl, getFaviconUrl, isBrowserInternalUrl } from './utils/urlUtils';
+import { formatUrl, getFaviconUrl, isBrowserInternalUrl, resolveSubLinkUrl } from './utils/urlUtils';
 import { recordVisit, seedInitialAnalyticsIfEmpty } from './services/analyticsDb';
 import { deleteCachedFavicon } from './services/faviconDb';
 import { Sparkles, Layers, ShieldCheck, Compass, CheckCircle2, Lock, EyeOff, Copy, X } from 'lucide-react';
@@ -142,6 +143,33 @@ export default function App() {
 
     if (changed) {
       setSettings(newSettings);
+    }
+  }, []);
+
+  // Backfill default subLinks once for existing users if not yet initialized
+  useEffect(() => {
+    if (localStorage.getItem('sangnav_sublinks_seeded_v2')) return;
+    localStorage.setItem('sangnav_sublinks_seeded_v2', 'true');
+
+    const defaultSubLinksMap = new Map(
+      DEFAULT_LINKS.filter((l) => l.subLinks && l.subLinks.length > 0).map((l) => [l.id, l.subLinks])
+    );
+    let updatedAny = false;
+    const nextLinks = links.map((link) => {
+      if (defaultSubLinksMap.has(link.id)) {
+        const hasNoSubLinks = !link.subLinks || link.subLinks.length === 0;
+        const hasOldGhSub =
+          link.id === 'link-1' &&
+          link.subLinks?.some((s) => s.id === 'sub-gh-2' && s.title === 'Pull Requests');
+        if (hasNoSubLinks || hasOldGhSub) {
+          updatedAny = true;
+          return { ...link, subLinks: defaultSubLinksMap.get(link.id) };
+        }
+      }
+      return link;
+    });
+    if (updatedAny) {
+      setLinks(nextLinks);
     }
   }, []);
 
@@ -290,8 +318,10 @@ export default function App() {
     }
   };
 
-  const handleOpenLink = (link: NavLinkItem) => {
-    const targetUrl = formatUrl(link.url);
+  const handleOpenLink = (link: NavLinkItem, subLink?: NavSubLink) => {
+    const targetUrl = subLink
+      ? resolveSubLinkUrl(link.url, subLink.url)
+      : formatUrl(link.url);
     if (isBrowserInternalUrl(targetUrl)) {
       setBrowserUrlNotice({ url: targetUrl, status: 'copying' });
       void copyBrowserInternalUrl(targetUrl);
@@ -314,8 +344,8 @@ export default function App() {
       // Record visit in IndexedDB for telemetry & analytics (public mode only for stealth)
       recordVisit({
         id: link.id,
-        title: link.title,
-        url: link.url,
+        title: subLink ? `${link.title} · ${subLink.title}` : link.title,
+        url: targetUrl,
         categoryId: link.categoryId,
       });
     }
@@ -343,7 +373,11 @@ export default function App() {
     if (id) {
       // Edit existing
       setter((prev) =>
-        prev.map((item) => (item.id === id ? { ...item, ...savedData } : item))
+        prev.map((item) =>
+          item.id === id
+            ? { ...item, ...savedData, subLinks: savedData.subLinks }
+            : item
+        )
       );
     } else {
       // Add new

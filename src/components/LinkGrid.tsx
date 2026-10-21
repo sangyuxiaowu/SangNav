@@ -1,14 +1,13 @@
 import React, { useState } from 'react';
-import { FaviconProvider, NavCategory, NavLinkItem } from '../types/navigation';
-import { getFaviconUrl, getInitialColor, getDomain } from '../utils/urlUtils';
+import { FaviconProvider, NavCategory, NavLinkItem, NavSubLink } from '../types/navigation';
+import { getFaviconUrl, getInitialColor, getDomain, resolveSubLinkUrl } from '../utils/urlUtils';
 import { 
   Star, 
-  MoreVertical, 
   Edit, 
   Trash2, 
   GripVertical,
   Plus, 
-  Layers 
+  Layers
 } from 'lucide-react';
 import { getCategoryIcon } from './CategoryNav';
 import { CachedFavicon } from './CachedFavicon';
@@ -19,7 +18,7 @@ interface LinkGridProps {
   activeCategoryId: string;
   columnsCount: 3 | 4 | 5 | 6;
   isManageMode: boolean;
-  onOpenLink: (link: NavLinkItem) => void;
+  onOpenLink: (link: NavLinkItem, subLink?: NavSubLink) => void;
   onEditLink: (link: NavLinkItem) => void;
   onDeleteLink: (id: string) => void;
   onTogglePin: (link: NavLinkItem) => void;
@@ -70,10 +69,14 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
     if (!searchFilterQuery.trim()) return true;
 
     const q = searchFilterQuery.toLowerCase();
+    const matchesSub = link.subLinks?.some(
+      (s) => s.title.toLowerCase().includes(q) || s.url.toLowerCase().includes(q)
+    );
     return (
       link.title.toLowerCase().includes(q) ||
       link.url.toLowerCase().includes(q) ||
-      (link.description && link.description.toLowerCase().includes(q))
+      (link.description && link.description.toLowerCase().includes(q)) ||
+      Boolean(matchesSub)
     );
   });
 
@@ -109,6 +112,7 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
     const initialColor = getInitialColor(link.title);
     const initial = link.title.charAt(0).toUpperCase();
     const isDropTarget = draggedLinkId !== null && draggedLinkId !== link.id;
+    const hasSubLinks = Boolean(link.subLinks && link.subLinks.length > 0);
 
     const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
@@ -229,11 +233,46 @@ export const LinkGrid: React.FC<LinkGridProps> = ({
 
           {/* Description */}
           {link.description && (
-            <p className="text-xs text-theme-secondary line-clamp-2 leading-relaxed">
+            <p className="text-xs text-theme-secondary truncate leading-relaxed">
               {link.description}
             </p>
           )}
         </div>
+
+        {/* Sub-page Shortcuts Footer */}
+        {hasSubLinks && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="mt-1.5 -ml-1.5 flex items-center gap-0.5 overflow-x-auto no-scrollbar"
+          >
+            {link.subLinks!.map((sub, idx) => {
+              const resolvedUrl = resolveSubLinkUrl(link.url, sub.url);
+              return (
+                <React.Fragment key={sub.id}>
+                  {idx > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="text-theme-muted/40 text-[10px] px-0.5 select-none shrink-0"
+                    >
+                      ·
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenLink(link, sub);
+                    }}
+                    title={`${sub.title} · ${resolvedUrl}`}
+                    className="px-1.5 py-0.5 rounded-md text-[11px] font-medium text-theme-muted hover:text-blue-500 hover:bg-blue-500/10 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    {sub.title}
+                  </button>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   };

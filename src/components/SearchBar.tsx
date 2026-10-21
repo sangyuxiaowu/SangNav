@@ -36,6 +36,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 }) => {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [searchMode, setSearchMode] = useState<'web' | 'local'>('web');
   const [history, setHistory] = useState<string[]>(() => {
     try {
@@ -47,6 +48,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   });
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // Filter only enabled search engines (defaults to all if enabled is true/undefined)
   const enabledEngines = useMemo(() => {
@@ -85,6 +87,27 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     localStorage.removeItem('sangnav_search_history');
   };
 
+  // Filtered bookmark suggestions when typing
+  const matchingBookmarks = useMemo(() => {
+    const trimmed = query.trim().toLowerCase();
+    if (!trimmed) return [];
+    return links
+      .filter(
+        (l) =>
+          l.title.toLowerCase().includes(trimmed) ||
+          (l.description && l.description.toLowerCase().includes(trimmed)) ||
+          l.url.toLowerCase().includes(trimmed)
+      )
+      .slice(0, 6);
+  }, [links, query]);
+
+  // Keep selected item scrolled into view when navigating via keyboard
+  useEffect(() => {
+    if (selectedIndex >= 0 && itemRefs.current[selectedIndex]) {
+      itemRefs.current[selectedIndex]?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [selectedIndex]);
+
   const handleExecuteSearch = (searchQuery: string) => {
     const targetQuery = searchQuery.trim();
     if (!targetQuery) return;
@@ -115,12 +138,50 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (selectedIndex >= 0 && selectedIndex < matchingBookmarks.length) {
+      onSelectLink(matchingBookmarks[selectedIndex]);
+      setIsFocused(false);
+      setSelectedIndex(-1);
+      inputRef.current?.blur();
+      return;
+    }
     handleExecuteSearch(query);
   };
 
   const handleQueryChange = (val: string) => {
     setQuery(val);
+    setSelectedIndex(-1);
     onFilterLinks(val);
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing) return;
+
+    if (e.key === 'ArrowDown') {
+      if (matchingBookmarks.length > 0) {
+        e.preventDefault();
+        setIsFocused(true);
+        setSelectedIndex((prev) =>
+          prev < matchingBookmarks.length - 1 ? prev + 1 : 0
+        );
+      }
+    } else if (e.key === 'ArrowUp') {
+      if (matchingBookmarks.length > 0) {
+        e.preventDefault();
+        setIsFocused(true);
+        setSelectedIndex((prev) =>
+          prev <= 0 ? matchingBookmarks.length - 1 : prev - 1
+        );
+      }
+    } else if (e.key === 'Escape') {
+      if (selectedIndex !== -1) {
+        e.preventDefault();
+        setSelectedIndex(-1);
+      } else {
+        setIsFocused(false);
+        inputRef.current?.blur();
+      }
+    }
   };
 
   // Keyboard shortcut listener: / or Ctrl+K to focus search input
@@ -136,15 +197,6 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  // Filtered bookmark suggestions when typing
-  const matchingBookmarks = query.trim() 
-    ? links.filter(l => 
-        l.title.toLowerCase().includes(query.toLowerCase()) ||
-        (l.description && l.description.toLowerCase().includes(query.toLowerCase())) ||
-        l.url.toLowerCase().includes(query.toLowerCase())
-      ).slice(0, 4)
-    : [];
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-3">
@@ -246,8 +298,14 @@ export const SearchBar: React.FC<SearchBarProps> = ({
             type="text"
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
+            onKeyDown={handleInputKeyDown}
             onFocus={() => setIsFocused(true)}
-            onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+            onBlur={() => {
+              setTimeout(() => {
+                setIsFocused(false);
+                setSelectedIndex(-1);
+              }, 200);
+            }}
             placeholder={
               searchMode === 'local'
                 ? '直接在已收藏的个人书签中搜索...'
@@ -283,36 +341,66 @@ export const SearchBar: React.FC<SearchBarProps> = ({
               <div className="p-1">
                 <div className="text-[11px] font-medium text-theme-muted px-2.5 py-1 flex items-center justify-between">
                   <span>快捷直达书签 ({matchingBookmarks.length})</span>
-                  <span className="text-[10px] opacity-75">点击直接打开</span>
+                  <span className="text-[10px] opacity-75">↑↓ 选择 · Enter 直接打开</span>
                 </div>
-                <div className="space-y-1">
-                  {matchingBookmarks.map((bm) => (
-                    <div
-                      key={bm.id}
-                      onMouseDown={() => onSelectLink(bm)}
-                      className="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-theme-surface cursor-pointer transition-colors text-theme-primary group"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        {bm.icon ? (
-                          <img 
-                            src={bm.icon} 
-                            alt="" 
-                            className="w-4 h-4 rounded-xs shrink-0 object-contain" 
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                          />
-                        ) : (
-                          <Globe className="w-4 h-4 text-theme-muted shrink-0" />
-                        )}
-                        <span className="font-medium truncate group-hover:text-blue-500 transition-colors">{bm.title}</span>
-                        {bm.description && (
-                          <span className="text-theme-muted truncate text-[11px] hidden sm:inline">
-                            {bm.description}
+                <div className="space-y-1 max-h-60 overflow-y-auto">
+                  {matchingBookmarks.map((bm, idx) => {
+                    const isSelected = idx === selectedIndex;
+                    return (
+                      <div
+                        key={bm.id}
+                        ref={(el) => {
+                          itemRefs.current[idx] = el;
+                        }}
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                        onMouseDown={() => onSelectLink(bm)}
+                        className={`flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer transition-colors group ${
+                          isSelected
+                            ? 'bg-blue-500/15 text-blue-500 ring-1 ring-blue-500/30'
+                            : 'hover:bg-theme-surface text-theme-primary'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {bm.icon ? (
+                            <img 
+                              src={bm.icon} 
+                              alt="" 
+                              className="w-4 h-4 rounded-xs shrink-0 object-contain" 
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                            />
+                          ) : (
+                            <Globe className={`w-4 h-4 shrink-0 ${isSelected ? 'text-blue-500' : 'text-theme-muted'}`} />
+                          )}
+                          <span
+                            className={`font-medium truncate transition-colors ${
+                              isSelected ? 'text-blue-500' : 'group-hover:text-blue-500'
+                            }`}
+                          >
+                            {bm.title}
                           </span>
-                        )}
+                          {bm.description && (
+                            <span className="text-theme-muted truncate text-[11px] hidden sm:inline">
+                              {bm.description}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                          {isSelected && (
+                            <kbd className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-500 font-mono text-[10px]">
+                              ↵
+                            </kbd>
+                          )}
+                          <ExternalLink
+                            className={`w-3 h-3 transition-colors ${
+                              isSelected
+                                ? 'text-blue-500'
+                                : 'text-theme-muted group-hover:text-theme-primary'
+                            }`}
+                          />
+                        </div>
                       </div>
-                      <ExternalLink className="w-3 h-3 text-theme-muted group-hover:text-theme-primary shrink-0 ml-2" />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -362,6 +450,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
       {/* Keyboard Hint */}
       <div className="flex items-center justify-center gap-3 text-[11px] text-theme-muted">
         <span>按 <kbd className="px-1.5 py-0.5 rounded-md bg-theme-surface text-theme-secondary font-mono text-[10px] border border-theme-default shadow-xs">/</kbd> 快速激活搜索</span>
+        <span>·</span>
+        <span>按 <kbd className="px-1.5 py-0.5 rounded-md bg-theme-surface text-theme-secondary font-mono text-[10px] border border-theme-default shadow-xs">↑↓</kbd> 选择直达</span>
         <span>·</span>
         <span>按 <kbd className="px-1.5 py-0.5 rounded-md bg-theme-surface text-theme-secondary font-mono text-[10px] border border-theme-default shadow-xs">Enter</kbd> 立即跳转</span>
       </div>

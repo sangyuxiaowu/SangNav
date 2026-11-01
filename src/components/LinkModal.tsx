@@ -11,7 +11,7 @@ interface LinkModalProps {
   initialData?: NavLinkItem | null;
   defaultCategoryId?: string;
   faviconProvider?: FaviconProvider;
-  onSave: (data: Omit<NavLinkItem, 'id' | 'createdAt' | 'clicks'>, id?: string) => void;
+  onSave: (data: Omit<NavLinkItem, 'id' | 'createdAt'>, id?: string) => void;
 }
 
 export const LinkModal: React.FC<LinkModalProps> = ({

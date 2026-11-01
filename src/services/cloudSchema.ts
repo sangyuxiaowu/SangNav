@@ -12,7 +12,6 @@ export function validateCloudValues(values: Record<string, unknown>) {
     if (key === 'sangnav_links' || key === 'sangnav_secret_links') {
       valid = list(value, item => strings(item, ['id', 'title', 'url', 'categoryId']) && number(item.createdAt)
         && ['description', 'icon'].every(field => optional(item, field, 'string')) && optional(item, 'pinned', 'boolean')
-        && (item.clicks === undefined || number(item.clicks))
         && (item.subLinks === undefined || list(item.subLinks, sub => strings(sub, ['id', 'title', 'url']))));
     } else if (key === 'sangnav_categories' || key === 'sangnav_secret_categories') {
       valid = list(value, item => strings(item, ['id', 'name']) && number(item.order) && optional(item, 'iconName', 'string'));

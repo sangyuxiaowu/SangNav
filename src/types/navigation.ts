@@ -12,7 +12,6 @@ export interface NavLinkItem {
   description?: string;
   icon?: string;
   pinned?: boolean;
-  clicks?: number;
   createdAt: number;
   subLinks?: NavSubLink[];
 }

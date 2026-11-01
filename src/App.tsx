@@ -124,7 +124,7 @@ export default function App() {
 
   useEffect(() => {
     loadWeather();
-    seedInitialAnalyticsIfEmpty(links);
+    seedInitialAnalyticsIfEmpty();
   }, [loadWeather]);
 
   // Migrate outdated wallpaper URLs if stored in user's localStorage
@@ -343,14 +343,6 @@ export default function App() {
       return;
     }
 
-    if (!isCloudActive()) {
-      const setActiveLinks = isSecretMode ? setSecretLinks : setLinks;
-      setActiveLinks((prev) =>
-        prev.map((item) =>
-          item.id === link.id ? { ...item, clicks: (item.clicks || 0) + 1 } : item
-        )
-      );
-    }
     if (!isSecretMode) {
       void recordVisit({
         id: link.id,
@@ -368,7 +360,7 @@ export default function App() {
   };
 
   const handleSaveLink = (
-    data: Omit<NavLinkItem, 'id' | 'createdAt' | 'clicks'>,
+    data: Omit<NavLinkItem, 'id' | 'createdAt'>,
     id?: string
   ) => {
     const setter = isSecretMode ? setSecretLinks : setLinks;
@@ -394,7 +386,6 @@ export default function App() {
       const newLink: NavLinkItem = {
         ...savedData,
         id: `link-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        clicks: 0,
         createdAt: Date.now(),
       };
       setter((prev) => [newLink, ...prev]);

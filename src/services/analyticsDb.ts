@@ -388,9 +388,9 @@ export async function getAnalyticsDashboardData(timeRange: 'all' | '7days' | 'to
 }
 
 /**
- * Seed sample data from initial link clicks only ONCE on first launch
+ * Seed sample searches only ONCE on first launch
  */
-export async function seedInitialAnalyticsIfEmpty(links: Array<{ id: string; title: string; url: string; categoryId: string; clicks?: number }>) {
+export async function seedInitialAnalyticsIfEmpty() {
   if (isCloudActive()) return;
   try {
     // If user has already initialized or cleared, never auto-seed again!
@@ -421,40 +421,7 @@ export async function seedInitialAnalyticsIfEmpty(links: Array<{ id: string; tit
     // Seed realistic visits from links
     const now = Date.now();
     const tx = db.transaction(['visits', 'searches'], 'readwrite');
-    const visitStore = tx.objectStore('visits');
     const searchStore = tx.objectStore('searches');
-
-    // Generate visits distributed over the past 7 days with realistic peak afternoon hours
-    for (const link of links) {
-      const clickCount = Math.min(link.clicks || 0, 40);
-      for (let i = 0; i < clickCount; i++) {
-        // Distribute timestamp within last 7 days
-        const daysAgo = Math.floor(Math.random() * 7);
-        // Realistic hour distribution: peaked around 10:00 - 16:00 and 20:00 - 22:00
-        const rand = Math.random();
-        let hour = 14;
-        if (rand < 0.3) hour = 9 + Math.floor(Math.random() * 3);
-        else if (rand < 0.7) hour = 13 + Math.floor(Math.random() * 5);
-        else if (rand < 0.9) hour = 20 + Math.floor(Math.random() * 3);
-        else hour = Math.floor(Math.random() * 24);
-
-        const date = new Date(now - daysAgo * 86400000);
-        date.setHours(hour, Math.floor(Math.random() * 60));
-
-        visitStore.add({
-          linkId: link.id,
-          title: link.title,
-          url: link.url,
-          domain: extractDomain(link.url),
-          categoryId: link.categoryId,
-          timestamp: date.getTime(),
-          hour: date.getHours(),
-          dayOfWeek: date.getDay(),
-          dateStr: date.toISOString().split('T')[0],
-        });
-      }
-    }
-
     // Seed some initial searches
     const sampleSearches = [
       { q: 'React 19 特性', engine: { id: 'bing', name: '必应' } },

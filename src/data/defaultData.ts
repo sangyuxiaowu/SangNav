@@ -102,7 +102,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '全球最大的开源代码托管与协作平台',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000000000,
     subLinks: [
       { id: 'sub-gh-1', title: 'Trending', url: '/trending' },
@@ -118,7 +117,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '年轻人聚集的文化社区与丰富视频内容',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000001000,
     subLinks: [
       { id: 'sub-bili-1', title: '今日热门', url: '/v/popular/all' },
@@ -134,7 +132,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '问答社区，发现更大的世界',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000002000,
     subLinks: [
       { id: 'sub-zh-1', title: '今日热榜', url: '/hot' },
@@ -149,7 +146,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '高效工作与品质生活方式数字指南',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000003000,
     subLinks: [
       { id: 'sub-sspai-1', title: 'Matrix', url: '/matrix' },
@@ -164,7 +160,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '创意工作者讨论与极客聚集地',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000004000,
     subLinks: [
       { id: 'sub-v2-1', title: '最热', url: '/?tab=hot' },
@@ -180,7 +175,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '面向全球中文开发者的技术社区',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000005000,
     subLinks: [
       { id: 'sub-jj-1', title: '文章榜', url: '/hot/articles' },
@@ -198,7 +192,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: 'OpenAI 旗下的强大语言对话助手',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000010000,
     subLinks: [
       { id: 'sub-oai-1', title: 'API 平台', url: 'https://platform.openai.com/usage' },
@@ -213,7 +206,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: 'Anthropic 专注于安全与长文本的 AI 伙伴',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000011000,
     subLinks: [
       { id: 'sub-claude-1', title: 'Console', url: 'https://console.anthropic.com' },
@@ -227,7 +219,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '深度求索通用大模型与推理引擎',
     icon:'https://icon.horse/icon/deepseek.com',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000012000,
     subLinks: [
       { id: 'sub-ds-1', title: 'API 用量', url: 'https://platform.deepseek.com/usage' },
@@ -242,7 +233,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '月之暗面长文本理解与即时搜索',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000013000,
   },
   {
@@ -253,7 +243,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '基于 Gemini 大模型的快速原型构建与探索',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000014000,
   },
   {
@@ -264,7 +253,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '开源 AI 模型、数据集与演示生态核心',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000015000,
   },
 
@@ -277,7 +265,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: 'Web 标准、HTML/CSS/JS 权威参考手册',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000020000,
   },
   {
@@ -288,7 +275,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '全球开发者问答交流第一站',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000021000,
   },
   {
@@ -299,7 +285,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: 'JavaScript 依赖包与生态注册中心',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000022000,
   },
   {
@@ -310,7 +295,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '高活跃度极客与技术前沿交流社区',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000023000,
   },
   {
@@ -321,7 +305,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '容器化镜像库与云端构建中心',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000024000,
   },
   {
@@ -332,7 +315,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '现代化实用类原子 CSS 框架',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000025000,
   },
 
@@ -345,7 +327,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '跨平台协作式界面与原型设计工具',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000030000,
   },
   {
@@ -356,7 +337,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '全球优秀设计师视觉作品与灵感集结',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000031000,
   },
   {
@@ -367,7 +347,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '阿里巴巴矢量图标库与字体图标平台',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000032000,
   },
   {
@@ -378,7 +357,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '免费高清商用无版权摄影图库',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000033000,
   },
   {
@@ -389,7 +367,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '全球最佳移动端与 Web 真实产品交互设计库',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000034000,
   },
 
@@ -402,7 +379,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '一体化工作空间：笔记、知识库与项目管理',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000040000,
   },
   {
@@ -413,7 +389,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '先进团队企业协同与高效办公套件',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000041000,
   },
   {
@@ -424,7 +399,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '在线思维导图、流程图与架构设计平台',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000042000,
   },
   {
@@ -435,7 +409,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '全球领先的高精准度自然语言AI翻译',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000043000,
   },
 
@@ -448,7 +421,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '电影评分、影评与影视排行榜',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000050000,
   },
   {
@@ -459,7 +431,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '创投前沿、科技创新与新商业报道',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000051000,
   },
   {
@@ -470,7 +441,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '数码科技热点与数码极客资讯报道',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000052000,
   },
   {
@@ -481,7 +451,6 @@ export const DEFAULT_LINKS: NavLinkItem[] = [
     description: '全网各平台热搜与排行榜一站汇聚',
     icon:'',
     pinned: false,
-    clicks: 0,
     createdAt: 1700000053000,
   },
 ];
@@ -581,7 +550,6 @@ export const DEFAULT_SECRET_LINKS: NavLinkItem[] = [
     description: '端到端高安全性加密邮箱',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000000000,
   },
   {
@@ -592,7 +560,6 @@ export const DEFAULT_SECRET_LINKS: NavLinkItem[] = [
     description: '开源跨平台高强度密码库',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000001000,
   },
   {
@@ -603,7 +570,6 @@ export const DEFAULT_SECRET_LINKS: NavLinkItem[] = [
     description: '无痕隐私保护搜索引擎',
     icon:'',
     pinned: true,
-    clicks: 0,
     createdAt: 1700000002000,
   },
 ];

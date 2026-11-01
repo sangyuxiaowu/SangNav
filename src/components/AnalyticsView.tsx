@@ -212,7 +212,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, favico
             <Globe className="w-3.5 h-3.5 text-blue-500" />
           </div>
           <div className="text-xl font-bold font-mono text-theme-primary">
-            {Math.max(data?.totalVisits ?? 0, links.reduce((sum, l) => sum + (l.clicks || 0), 0))}
+            {data?.totalVisits ?? 0}
             <span className="text-xs font-normal text-theme-muted ml-1">次</span>
           </div>
           <div className="text-[10px] text-theme-muted truncate">

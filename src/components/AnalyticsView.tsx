@@ -24,6 +24,7 @@ import {
 import { getFaviconUrl, getInitialColor, formatUrl } from '../utils/urlUtils';
 import { CachedFavicon } from './CachedFavicon';
 import type { FaviconProvider, NavLinkItem } from '../types/navigation';
+import { isCloudActive } from '../services/cloudStorage';
 
 interface AnalyticsViewProps {
   onOpenLink?: (url: string) => void;
@@ -111,15 +112,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, favico
           <div className="flex items-center gap-2">
             <h4 className="text-sm font-semibold flex items-center gap-1.5 text-theme-primary">
               <BarChart3 className="w-4 h-4 text-blue-500" />
-              <span>本地使用与访问偏好统计</span>
+              <span>使用与访问偏好统计</span>
             </h4>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-medium border border-emerald-500/20">
               <ShieldCheck className="w-3 h-3" />
-              <span>IndexedDB 本地加密存储</span>
+              <span>{isCloudActive() ? '云端账户存储' : '本机存储'}</span>
             </span>
           </div>
           <p className="text-[11px] text-theme-muted">
-            数据仅保存在您的浏览器本地，不收集个人隐私，提供常用网站频次与使用规律分析
+            {isCloudActive() ? '统计数据保存至当前账户的云端空间。' : '统计数据保存在当前浏览器本机。'}
           </p>
         </div>
 
@@ -173,7 +174,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, favico
         <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 animate-in fade-in duration-200">
           <div className="text-xs text-red-500 font-medium flex items-center gap-1.5">
             <Trash2 className="w-4 h-4 shrink-0" />
-            <span>确定要清空本地 IndexedDB 中的所有访问与搜索统计吗？此操作无法撤销。</span>
+            <span>确定要清空当前数据中的所有访问与搜索统计吗？此操作无法撤销。</span>
           </div>
           <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
             <button

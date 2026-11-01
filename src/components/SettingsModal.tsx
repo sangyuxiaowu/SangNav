@@ -33,6 +33,7 @@ import {
   Pencil
 } from 'lucide-react';
 import { AnalyticsView } from './AnalyticsView';
+import { CloudAccount } from './CloudAccount';
 import { clearAllAnalytics } from '../services/analyticsDb';
 import { 
   DEFAULT_CATEGORIES, 
@@ -501,7 +502,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>数据与备份</span>
+            <span>账户与数据</span>
           </button>
         </div>
 
@@ -1354,6 +1355,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* TAB 3: Data Management */}
           {activeTab === 'data' && (
             <div className="space-y-4">
+              <CloudAccount />
               {importStatus && (
                 <div className="p-3 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-500 text-xs">
                   {importStatus}
@@ -1459,7 +1461,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <div className="font-semibold text-theme-primary">清空访问与搜索统计</div>
-                    <div className="text-[11px] text-theme-muted">彻底抹除浏览器本地 IndexedDB 存储的历史点击、时段偏好与搜索记录</div>
+                    <div className="text-[11px] text-theme-muted">清空当前账户或本机的历史点击、时段偏好与搜索记录</div>
                   </div>
                   {!confirmClearStats ? (
                     <button

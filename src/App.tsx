@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useSyncExternalStore } from 'react';
 import { 
   NavLinkItem, 
   NavSubLink,
@@ -26,6 +26,8 @@ import { LinkGrid } from './components/LinkGrid';
 import { LinkModal } from './components/LinkModal';
 import { CategoryModal } from './components/CategoryModal';
 import { SettingsModal } from './components/SettingsModal';
+import { CloudStatus } from './components/CloudAccount';
+import { getCloudState, isCloudActive, restoreCloudAccount, subscribeStorage } from './services/cloudStorage';
 import { SecretLockModal } from './components/SecretLockModal';
 import { SecretSettingsModal } from './components/SecretSettingsModal';
 import { PWAUpdateModal } from './components/PWAUpdateModal';
@@ -89,6 +91,20 @@ export default function App() {
   const [isSecretLockModalOpen, setIsSecretLockModalOpen] = useState(false);
   const [secretLockMode, setSecretLockMode] = useState<'set' | 'unlock'>('unlock');
   const [isSecretSettingsModalOpen, setIsSecretSettingsModalOpen] = useState(false);
+  const cloudState = useSyncExternalStore(subscribeStorage, getCloudState);
+
+  useEffect(() => { void restoreCloudAccount(); }, []);
+
+  useEffect(() => {
+    setIsSecretMode(false);
+    setActiveCategoryId('all');
+    setIsManageMode(false);
+    setIsLinkModalOpen(false);
+    setIsCategoryModalOpen(false);
+    setIsSecretLockModalOpen(false);
+    setIsSecretSettingsModalOpen(false);
+    setSearchFilterQuery('');
+  }, [cloudState.workspaceUrl, cloudState.username]);
 
   // Weather State
   const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -328,21 +344,16 @@ export default function App() {
       return;
     }
 
-    // Increment click counter on active list
-    if (isSecretMode) {
-      setSecretLinks((prev) =>
+    if (!isCloudActive()) {
+      const setActiveLinks = isSecretMode ? setSecretLinks : setLinks;
+      setActiveLinks((prev) =>
         prev.map((item) =>
           item.id === link.id ? { ...item, clicks: (item.clicks || 0) + 1 } : item
         )
       );
-    } else {
-      setLinks((prev) =>
-        prev.map((item) =>
-          item.id === link.id ? { ...item, clicks: (item.clicks || 0) + 1 } : item
-        )
-      );
-      // Record visit in IndexedDB for telemetry & analytics (public mode only for stealth)
-      recordVisit({
+    }
+    if (!isSecretMode) {
+      void recordVisit({
         id: link.id,
         title: subLink ? `${link.title} · ${subLink.title}` : link.title,
         url: targetUrl,
@@ -621,9 +632,13 @@ export default function App() {
       )}
 
       {/* Main Content Viewport */}
+      {cloudState.status === 'connecting' && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center text-white text-sm" role="status">正在读取云端数据...</div>
+      )}
       <main className={`flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-7 relative z-10 transition-all duration-300 ${
         settings.columnsCount === 6 ? 'max-w-[1440px]' : settings.columnsCount === 5 ? 'max-w-7xl' : 'max-w-6xl'
       }`}>
+        <CloudStatus onOpen={() => { setSettingsInitialTab('data'); setIsSettingsModalOpen(true); }} />
         {/* Hero Section: Live Clock & Weather Greeting */}
         <HeroSection
           weather={weather}

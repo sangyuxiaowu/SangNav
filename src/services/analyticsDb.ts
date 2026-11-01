@@ -3,6 +3,8 @@
  * Stores local visit and search telemetry completely on-device.
  */
 
+import { isCloudActive, readValue, writeValue } from './cloudStorage';
+
 export interface VisitRecord {
   id?: number;
   linkId: string;
@@ -57,6 +59,17 @@ export interface EngineStat {
 
 const DB_NAME = 'sangnav_analytics_db';
 const DB_VERSION = 1;
+
+export const CLOUD_VISITS_KEY = 'sangnav_analytics_visits';
+export const CLOUD_SEARCHES_KEY = 'sangnav_analytics_searches';
+readValue<VisitRecord[]>(CLOUD_VISITS_KEY, []);
+readValue<SearchRecord[]>(CLOUD_SEARCHES_KEY, []);
+
+function filterRecords<T extends { timestamp: number; dateStr: string }>(records: T[], timeRange: 'all' | '7days' | 'today'): T[] {
+  if (timeRange === '7days') return records.filter(record => record.timestamp >= Date.now() - 7 * 86400000);
+  if (timeRange === 'today') return records.filter(record => record.dateStr === new Date().toISOString().split('T')[0]);
+  return records;
+}
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -130,7 +143,6 @@ export async function recordVisit(link: {
   categoryId: string;
 }): Promise<void> {
   try {
-    const db = await getDb();
     const now = new Date();
     const record: VisitRecord = {
       linkId: link.id,
@@ -143,6 +155,12 @@ export async function recordVisit(link: {
       dayOfWeek: now.getDay(),
       dateStr: now.toISOString().split('T')[0],
     };
+
+    if (isCloudActive()) {
+      writeValue<VisitRecord[]>(CLOUD_VISITS_KEY, previous => [...previous, record], []);
+      return;
+    }
+    const db = await getDb();
 
     return new Promise((resolve, reject) => {
       const tx = db.transaction('visits', 'readwrite');
@@ -167,7 +185,6 @@ export async function recordSearch(
   if (!cleanQuery) return;
 
   try {
-    const db = await getDb();
     const now = new Date();
     const record: SearchRecord = {
       query: cleanQuery,
@@ -178,6 +195,12 @@ export async function recordSearch(
       dayOfWeek: now.getDay(),
       dateStr: now.toISOString().split('T')[0],
     };
+
+    if (isCloudActive()) {
+      writeValue<SearchRecord[]>(CLOUD_SEARCHES_KEY, previous => [...previous, record], []);
+      return;
+    }
+    const db = await getDb();
 
     return new Promise((resolve, reject) => {
       const tx = db.transaction('searches', 'readwrite');
@@ -195,6 +218,7 @@ export async function recordSearch(
  * Fetch all visit records within a time range
  */
 export async function getVisits(timeRange: 'all' | '7days' | 'today' = 'all'): Promise<VisitRecord[]> {
+  if (isCloudActive()) return filterRecords(readValue<VisitRecord[]>(CLOUD_VISITS_KEY, []), timeRange);
   try {
     const db = await getDb();
     return new Promise((resolve) => {
@@ -228,6 +252,7 @@ export async function getVisits(timeRange: 'all' | '7days' | 'today' = 'all'): P
  * Fetch all search records within a time range
  */
 export async function getSearches(timeRange: 'all' | '7days' | 'today' = 'all'): Promise<SearchRecord[]> {
+  if (isCloudActive()) return filterRecords(readValue<SearchRecord[]>(CLOUD_SEARCHES_KEY, []), timeRange);
   try {
     const db = await getDb();
     return new Promise((resolve) => {
@@ -366,6 +391,7 @@ export async function getAnalyticsDashboardData(timeRange: 'all' | '7days' | 'to
  * Seed sample data from initial link clicks only ONCE on first launch
  */
 export async function seedInitialAnalyticsIfEmpty(links: Array<{ id: string; title: string; url: string; categoryId: string; clicks?: number }>) {
+  if (isCloudActive()) return;
   try {
     // If user has already initialized or cleared, never auto-seed again!
     if (typeof window !== 'undefined' && localStorage.getItem('sangnav_analytics_initialized') === 'true') {
@@ -461,6 +487,11 @@ export async function seedInitialAnalyticsIfEmpty(links: Array<{ id: string; tit
  * Clear all records in IndexedDB
  */
 export async function clearAllAnalytics(): Promise<void> {
+  if (isCloudActive()) {
+    writeValue(CLOUD_VISITS_KEY, [], []);
+    writeValue(CLOUD_SEARCHES_KEY, [], []);
+    return;
+  }
   if (typeof window !== 'undefined') {
     localStorage.setItem('sangnav_analytics_initialized', 'true');
   }

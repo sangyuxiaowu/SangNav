@@ -13,6 +13,7 @@ import {
 import { SearchEngine, NavLinkItem, NavSubLink } from '../types/navigation';
 import { recordSearch } from '../services/analyticsDb';
 import { resolveSubLinkUrl } from '../utils/urlUtils';
+import { useLocalStorage } from '../hooks/useLocalStorage';
 
 interface SearchBarProps {
   engines: SearchEngine[];
@@ -39,14 +40,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   const [isFocused, setIsFocused] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [searchMode, setSearchMode] = useState<'web' | 'local'>('web');
-  const [history, setHistory] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('sangnav_search_history');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [history, setHistory] = useLocalStorage<string[]>('sangnav_search_history', []);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -72,20 +66,17 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     if (!trimmed) return;
     const next = [trimmed, ...history.filter(h => h !== trimmed)].slice(0, 8);
     setHistory(next);
-    localStorage.setItem('sangnav_search_history', JSON.stringify(next));
   };
 
   const removeHistoryItem = (term: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const next = history.filter(h => h !== term);
     setHistory(next);
-    localStorage.setItem('sangnav_search_history', JSON.stringify(next));
   };
 
   const clearAllHistory = (e: React.MouseEvent) => {
     e.stopPropagation();
     setHistory([]);
-    localStorage.removeItem('sangnav_search_history');
   };
 
   // Filtered bookmark suggestions when typing

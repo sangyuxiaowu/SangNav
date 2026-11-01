@@ -16,6 +16,7 @@ import {
   DEFAULT_SECRET_LINKS 
 } from './data/defaultData';
 import { useLocalStorage } from './hooks/useLocalStorage';
+import { useBingWallpaper } from './hooks/useBingWallpaper';
 import { fetchWeather } from './services/weatherService';
 import { FloatingActions } from './components/FloatingActions';
 import { HeroSection } from './components/HeroSection';
@@ -552,7 +553,10 @@ export default function App() {
     }
   }, [settings.theme]);
 
-  const hasWallpaper = Boolean(settings.customWallpaperUrl && settings.customWallpaperUrl.trim());
+  const isBingWallpaper = settings.wallpaperPreset === 'bing';
+  const bingWallpaperUrl = useBingWallpaper(isBingWallpaper);
+  const wallpaperUrl = isBingWallpaper ? bingWallpaperUrl : settings.customWallpaperUrl;
+  const hasWallpaper = Boolean(wallpaperUrl && wallpaperUrl.trim());
 
   return (
     <div 
@@ -569,7 +573,7 @@ export default function App() {
           <div 
             className="absolute -inset-6 bg-cover bg-center transition-all duration-500 ease-out"
             style={{
-              backgroundImage: `url("${settings.customWallpaperUrl}")`,
+              backgroundImage: `url("${wallpaperUrl}")`,
               filter: `blur(${settings.wallpaperBlur ?? 0}px)`,
               transform: 'scale(1.04)',
             }}

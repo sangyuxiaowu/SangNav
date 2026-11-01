@@ -26,7 +26,6 @@ import { LinkGrid } from './components/LinkGrid';
 import { LinkModal } from './components/LinkModal';
 import { CategoryModal } from './components/CategoryModal';
 import { SettingsModal } from './components/SettingsModal';
-import { CloudStatus } from './components/CloudAccount';
 import { getCloudState, isCloudActive, restoreCloudAccount, subscribeStorage } from './services/cloudStorage';
 import { SecretLockModal } from './components/SecretLockModal';
 import { SecretSettingsModal } from './components/SecretSettingsModal';
@@ -34,7 +33,7 @@ import { PWAUpdateModal } from './components/PWAUpdateModal';
 import { formatUrl, getFaviconUrl, isBrowserInternalUrl, resolveSubLinkUrl } from './utils/urlUtils';
 import { recordVisit, seedInitialAnalyticsIfEmpty } from './services/analyticsDb';
 import { deleteCachedFavicon } from './services/faviconDb';
-import { Sparkles, Layers, ShieldCheck, Compass, CheckCircle2, Lock, EyeOff, Copy, X } from 'lucide-react';
+import { Sparkles, Layers, ShieldCheck, Compass, CheckCircle2, Lock, EyeOff, Copy, X, RefreshCw } from 'lucide-react';
 
 export default function App() {
   // Persistent State
@@ -58,7 +57,7 @@ export default function App() {
   const [defaultCategoryForNewLink, setDefaultCategoryForNewLink] = useState<string | undefined>();
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data'>('appearance');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data' | 'cloud'>('appearance');
   const [browserUrlNotice, setBrowserUrlNotice] = useState<{
     url: string;
     status: 'copying' | 'copied' | 'failed';
@@ -633,12 +632,16 @@ export default function App() {
 
       {/* Main Content Viewport */}
       {cloudState.status === 'connecting' && (
-        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center text-white text-sm" role="status">正在读取云端数据...</div>
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200" role="status">
+          <div className="flex items-center gap-3 px-5 py-3.5 rounded-2xl bg-theme-surface border border-theme-default text-theme-primary shadow-theme-lg">
+            <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
+            <span className="text-sm font-medium">正在读取云端空间数据...</span>
+          </div>
+        </div>
       )}
       <main className={`flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-7 relative z-10 transition-all duration-300 ${
         settings.columnsCount === 6 ? 'max-w-[1440px]' : settings.columnsCount === 5 ? 'max-w-7xl' : 'max-w-6xl'
       }`}>
-        <CloudStatus onOpen={() => { setSettingsInitialTab('data'); setIsSettingsModalOpen(true); }} />
         {/* Hero Section: Live Clock & Weather Greeting */}
         <HeroSection
           weather={weather}
@@ -781,6 +784,10 @@ export default function App() {
           setEditingLink(null);
           setDefaultCategoryForNewLink(activeCategoryId === 'all' ? undefined : activeCategoryId);
           setIsLinkModalOpen(true);
+        }}
+        onOpenCloud={() => {
+          setSettingsInitialTab('cloud');
+          setIsSettingsModalOpen(true);
         }}
         onOpenSettings={() => {
           setSettingsInitialTab('appearance');

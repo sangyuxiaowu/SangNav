@@ -30,10 +30,12 @@ import {
   ArrowUp,
   ArrowDown,
   GripVertical,
-  Pencil
+  Pencil,
+  Cloud
 } from 'lucide-react';
 import { AnalyticsView } from './AnalyticsView';
 import { CloudAccount } from './CloudAccount';
+import { getCloudState, subscribeStorage } from '../services/cloudStorage';
 import { clearAllAnalytics } from '../services/analyticsDb';
 import { 
   DEFAULT_CATEGORIES, 
@@ -75,7 +77,7 @@ interface SettingsModalProps {
     settings: UserSettings;
   }) => void;
   onResetToDefaults: () => void;
-  initialTab?: 'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data';
+  initialTab?: 'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data' | 'cloud';
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -91,7 +93,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onResetToDefaults,
   initialTab,
 }) => {
-  const [activeTab, setActiveTab] = useState<'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data'>('appearance');
+  const [activeTab, setActiveTab] = useState<'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data' | 'cloud'>('appearance');
+  const cloudState = React.useSyncExternalStore(subscribeStorage, getCloudState);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [confirmResetDefaults, setConfirmResetDefaults] = useState(false);
   const [confirmClearStats, setConfirmClearStats] = useState(false);
@@ -494,6 +497,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <span>搜索引擎</span>
           </button>
           <button
+            onClick={() => setActiveTab('cloud')}
+            className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer shrink-0 ${
+              activeTab === 'cloud'
+                ? 'border-blue-500 text-blue-500 font-semibold'
+                : 'border-transparent text-theme-muted hover:text-theme-primary'
+            }`}
+          >
+            <Cloud className="w-3.5 h-3.5" />
+            <span>云端同步</span>
+            {cloudState.username && (
+              <span className={`w-1.5 h-1.5 rounded-full ${cloudState.status === 'saved' ? 'bg-emerald-500' : ['error', 'conflict', 'expired'].includes(cloudState.status) ? 'bg-rose-500' : 'bg-blue-500 animate-pulse'}`} />
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab('data')}
             className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer shrink-0 ${
               activeTab === 'data'
@@ -502,7 +519,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>账户与数据</span>
+            <span>本地备份</span>
           </button>
         </div>
 
@@ -1352,10 +1369,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: Data Management */}
-          {activeTab === 'data' && (
+          {/* TAB: Cloud Account & Sync */}
+          {activeTab === 'cloud' && (
             <div className="space-y-4">
               <CloudAccount />
+            </div>
+          )}
+
+          {/* TAB: Local Data Management */}
+          {activeTab === 'data' && (
+            <div className="space-y-4">
+              {/* Cloud Account Quick Jump Card */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-500/10 via-theme-base to-theme-base border border-blue-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-theme-sm">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 shrink-0">
+                    <Cloud className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-theme-primary flex items-center gap-2">
+                      <span>云端空间与多端同步</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${cloudState.username ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-theme-surface text-theme-muted border border-theme-default'}`}>
+                        {cloudState.username ? `${cloudState.username} · 已绑定空间` : '当前处于单机模式'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-theme-muted mt-0.5">
+                      {cloudState.username ? '数据自动同步至指定空间，多设备实时漫游' : '登录云端空间以实现多设备数据漫游和同步'}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('cloud')}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors cursor-pointer shadow-xs shrink-0 self-start sm:self-auto"
+                >
+                  <Cloud className="w-3.5 h-3.5" />
+                  <span>{cloudState.username ? '管理云端空间' : '前往配置云端'}</span>
+                </button>
+              </div>
+
               {importStatus && (
                 <div className="p-3 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-500 text-xs">
                   {importStatus}

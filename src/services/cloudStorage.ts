@@ -32,6 +32,7 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let generation = 0;
 let dirty = false;
 let busy = false;
+let backgroundLoading = false;
 let atomicPublish = false;
 let stagedPlan: StagedPlan | undefined;
 let storeRevision: string | undefined;
@@ -122,7 +123,7 @@ export function readValue<T>(key: string, initialValue: T): T {
 }
 
 export function writeValue<T>(key: string, value: T | ((previous: T) => T), initialValue: T) {
-  if (state.status === 'connecting') return;
+  if (state.status === 'connecting' && !isCloudActive()) return;
   const next = typeof value === 'function' ? (value as (previous: T) => T)(readValue(key, initialValue)) : value;
   values = { ...values, [key]: next };
   if (!isCloudActiveBeforeWrite()) {
@@ -220,13 +221,43 @@ function validateSnapshot(input: unknown): Snapshot {
   return result;
 }
 
-export async function loginCloud(workspaceUrl: string, username: string, password: string, importLocal: boolean, analytics: Values, existingSession?: Session) {
+export async function loginCloud(workspaceUrl: string, username: string, password: string, importLocal: boolean, analytics: Values, existingSession?: Session, useCache = false) {
   if (isCloudActive() || busy) throw new Error('请先退出当前云端账户。');
   const url = normalizeWorkspaceUrl(workspaceUrl);
   const attempt = ++generation;
   updateState({ status: 'connecting', message: '' });
   let authenticated: Session | null = null;
+  let cachedUnconfirmed = false;
   try {
+    if (useCache && existingSession) {
+      const key = `sangnav_cloud_draft:v2:${url}:${existingSession.resourceUserId}`;
+      let cached: Draft | null = null;
+      try {
+        cached = await readStagedDraft<Draft>(key) || JSON.parse(localStorage.getItem(key) || 'null');
+        if (cached) {
+          validateSnapshot(cached.snapshot);
+          if (cached.schemaVersion !== 2 || cached.durableStaged && !cached.stagedPlan || !Array.isArray(cached.records) || !Array.isArray(cached.identities) || !Array.isArray(cached.uploads) || cached.records.some(([recordKey, record]) => !isManagedKey(recordKey) || !record || !UUID.test(record.id) || !Number.isSafeInteger(record.version) || record.version < 1)) cached = null;
+        }
+      } catch { cached = null; }
+      if (cached && attempt === generation) {
+        backgroundLoading = true;
+        session = existingSession;
+        draftKey = key;
+        values = cached.snapshot.values;
+        records = new Map(cached.records);
+        blocked = new Set();
+        capabilities = null;
+        identities = new Map(cached.identities);
+        uploads = new Map(cached.uploads);
+        storeRevision = cached.storeRevision;
+        stagedPlan = cached.stagedPlan ? validateStagedPlan(cached.stagedPlan) : undefined;
+        atomicPublish = cached.publication === 'restore' || !!cached.atomicPublish;
+        unverifiedAttachmentIds = cached.unverifiedAttachmentIds || [];
+        dirty = !!stagedPlan || changes().length > 0;
+        cachedUnconfirmed = !!cached.unconfirmed || !!stagedPlan;
+        updateState({ workspaceUrl: url, username: username.trim(), status: cachedUnconfirmed ? 'unconfirmed' : 'connecting', message: '' });
+      }
+    }
     authenticated = existingSession || await request<Session>(`${url}/login`, null, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username.trim(), password }) });
     if (!authenticated.accessToken || !UUID.test(authenticated.resourceUserId) || authenticated.workspaceId !== url.split('/').pop() || !Number.isFinite(Date.parse(authenticated.expiresAt))) throw new Error('登录响应无效。');
     capabilities = validateCapabilities(await request<Capabilities>(`${url}/capabilities`, authenticated.accessToken));
@@ -236,6 +267,9 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
       if (!response.ok) throw new CloudError(response.status, '壁纸附件下载失败。');
       return response.arrayBuffer();
     }, capabilities, loadedUploads, splitDocuments(defaults).keys());
+    if (attempt !== generation) return;
+    if (backgroundLoading && session) authenticated = session;
+    const durable = await readStagedDraft<Draft>(`sangnav_cloud_draft:v2:${url}:${authenticated.resourceUserId}`);
     if (attempt !== generation) return;
     session = authenticated;
     records = remote.records;
@@ -253,7 +287,6 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
     dirty = changes().length > 0;
     let recovered: Draft | null = null;
     try { recovered = JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch { /* Ignore malformed local drafts. */ }
-    const durable = await readStagedDraft<Draft>(draftKey);
     if (durable) recovered = durable;
     else if (recovered?.durableStaged) throw new Error('暂存计划的持久副本缺失，已停止自动提交；请保留草稿并人工核对。');
     updateState({ workspaceUrl: url, username: username.trim(), status: dirty ? 'pending' : 'saved', message: '' });
@@ -282,12 +315,18 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
       dirty = !!stagedPlan || changes().length > 0;
       updateState({ status: stagedPlan || recovered.unconfirmed && dirty ? 'unconfirmed' : conflict ? 'conflict' : dirty ? 'pending' : 'saved', message: stagedPlan ? '已恢复暂存提交原始计划，请核实并续传同一提交。' : recovered.unconfirmed && dirty ? '已恢复结果待确认的提交计划，请先核实云端状态。' : dirty ? '已恢复此空间中当前身份未保存的本机草稿。' : '' });
     }
-    if (dirty) { persistDraft(); if (!['conflict', 'unconfirmed'].includes(state.status)) scheduleSave(); }
+    persistDraft();
+    if (dirty && !['conflict', 'unconfirmed'].includes(state.status)) scheduleSave();
     try { await rememberAccount({ workspaceUrl: url, username: username.trim(), password, session: authenticated }); }
     catch { updateState({ message: '浏览器无法加密保存账户，当前登录有效，刷新后需重新登录。' }); }
     scheduleRenewal();
     emit();
   } catch (error) {
+    if (backgroundLoading && attempt === generation) {
+      updateState({ status: error instanceof CloudError && error.status === 401 ? 'expired' : cachedUnconfirmed ? 'unconfirmed' : 'error', message: `云端暂不可用，正在使用本机缓存。${error instanceof Error ? error.message : ''}` });
+      scheduleRenewal(60000);
+      throw error;
+    }
     if (authenticated && !existingSession) void request(`${url}/logout`, authenticated.accessToken, { method: 'POST' }).catch(() => {});
     session = null;
     draftKey = '';
@@ -295,7 +334,7 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
     dirty = false;
     updateState({ status: 'local', username: '', workspaceUrl: '', message: error instanceof Error ? error.message : '登录失败。' });
     throw error;
-  }
+  } finally { backgroundLoading = false; }
 }
 
 let restoring: Promise<void> | null = null;
@@ -307,11 +346,12 @@ export function restoreCloudAccount(): Promise<void> {
     try {
       const account = await recallAccount();
       if (!account) { updateState({ status: 'local' }); return; }
-      const existing = Date.parse(account.session.expiresAt) > Date.now() ? account.session : undefined;
+      const existing = account.session;
       try {
-        await loginCloud(account.workspaceUrl, account.username, account.password, false, {}, existing);
+        await loginCloud(account.workspaceUrl, account.username, account.password, false, {}, existing, true);
       } catch (error) {
         if (!(error instanceof CloudError) || error.status !== 401) throw error;
+        if (isCloudActive()) { await forgetAccount(); throw error; }
         if (!existing) { await forgetAccount(); throw error; }
         try { await loginCloud(account.workspaceUrl, account.username, account.password, false, {}); }
         catch (failure) {
@@ -320,14 +360,14 @@ export function restoreCloudAccount(): Promise<void> {
         }
       }
     } catch (error) {
-      updateState({ status: 'local', message: error instanceof Error ? `自动登录失败：${error.message}` : '无法恢复账户，请重新登录。' });
+      if (!isCloudActive()) updateState({ status: 'local', message: error instanceof Error ? `自动登录失败：${error.message}` : '无法恢复账户，请重新登录。' });
     }
   })().finally(() => { restoring = null; });
   return restoring;
 }
 
 export async function saveCloud() {
-  if (!session || !capabilities || !dirty || busy || ['error', 'conflict', 'expired', 'unconfirmed'].includes(state.status)) return;
+  if (!session || !capabilities || !dirty || busy || backgroundLoading || ['error', 'conflict', 'expired', 'unconfirmed'].includes(state.status)) return;
   clearTimeout(timer);
   busy = true;
   const attempt = generation;
@@ -374,7 +414,7 @@ export async function saveCloud() {
     }
     dirty = changes().length > 0;
     if (!dirty) atomicPublish = false;
-    if (dirty) persistDraft(); else localStorage.removeItem(draftKey);
+    persistDraft();
     updateState({ status: dirty ? 'pending' : 'saved', message: '' });
   } catch (error) {
     if (attempt !== generation) return;
@@ -391,15 +431,17 @@ export async function saveCloud() {
 }
 
 export async function reconcileCloud(useRemote: boolean) {
-  if (!session || busy) return;
-  if (stagedPlan && !useRemote) {
-    updateState({ status: 'pending', message: '正在查询暂存会话并续传原始批次。' });
-    await saveCloud();
-    return;
-  }
+  if (!session || busy || backgroundLoading) return;
   busy = true;
   const wasUnconfirmed = state.status === 'unconfirmed';
   try {
+    if (!capabilities) capabilities = validateCapabilities(await client<Capabilities>('/capabilities'));
+    if (stagedPlan && !useRemote) {
+      busy = false;
+      updateState({ status: 'pending', message: '正在查询暂存会话并续传原始批次。' });
+      await saveCloud();
+      return;
+    }
     if (stagedPlan && useRemote) {
       await cancelStagedPlan(stagedPlan, client);
     }
@@ -414,7 +456,7 @@ export async function reconcileCloud(useRemote: boolean) {
       dirty = false;
       atomicPublish = false;
       storeRevision = remote.storeRevision;
-      localStorage.removeItem(draftKey);
+      persistDraft();
       updateState({ status: 'saved', message: '' });
     } else {
       const pending = changes();
@@ -434,7 +476,7 @@ export async function reconcileCloud(useRemote: boolean) {
       storeRevision = remote.storeRevision;
       dirty = changes().length > 0;
       if (!dirty) atomicPublish = false;
-      if (dirty) persistDraft(); else localStorage.removeItem(draftKey);
+      persistDraft();
       updateState({ status: conflict ? 'conflict' : dirty ? 'pending' : 'saved', message: conflict ? '同一资源已被其他设备修改，本机草稿已保留。请备份后选择云端版本。' : '' });
     }
   } catch (error) {
@@ -444,7 +486,7 @@ export async function reconcileCloud(useRemote: boolean) {
 }
 
 export async function logoutCloud() {
-  if (busy || renewal) throw new Error('请求处理中，请稍后退出。');
+  if (busy || renewal || backgroundLoading) throw new Error('请求处理中，请稍后退出。');
   await forgetAccount();
   clearTimeout(renewalTimer);
   clearTimeout(timer);

@@ -114,6 +114,9 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
   let uploadCount = 0;
   let pauseCommit: Promise<void> | null = null;
   let onCommit: (() => void) | null = null;
+  let pauseCapabilities: Promise<void> | null = null;
+  let onCapabilities: (() => void) | null = null;
+  let failCapabilities = false;
   let stagedPublishCount = 0;
   let failStagedPublish = false;
   let rejectFenceOnce = false;
@@ -145,7 +148,12 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
     }
     const token = request.headers.authorization?.replace('Bearer ', '') || '';
     if (tokens.get(token) !== workspaceId || revoked.has(token)) return respond(401, null);
-    if (url.pathname.endsWith('/capabilities')) return respond(200, serverCaps);
+    if (url.pathname.endsWith('/capabilities')) {
+      onCapabilities?.();
+      if (pauseCapabilities) await pauseCapabilities;
+      if (failCapabilities) return respond(503, null);
+      return respond(200, serverCaps);
+    }
     if (url.pathname.endsWith('/read-state')) return respond(200, { storeRevision: String(stagedPublishCount) });
     if (request.headers['if-store-revision']) {
       fenceReadCount++;
@@ -357,6 +365,52 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       assert.deepEqual(commits.at(-1)!.map(item => item.resource?.key), [`links/${first.id}.json`]);
       assert.equal(commits.at(-1)![0].expectedVersion, 1);
       assert.equal(local.get(historyKey), '["local-only"]');
+    });
+    await context.test('startup serves cached bookmarks before the network and preserves edits while loading', async () => {
+      const account = (await recallAccount())!;
+      const cachedLinks = cloud.readValue('sangnav_links', DEFAULT_LINKS);
+      await cloud.logoutCloud();
+      await rememberAccount(account);
+      let release!: () => void;
+      pauseCapabilities = new Promise<void>(resolve => { release = resolve; });
+      const reachedServer = new Promise<void>(resolve => { onCapabilities = resolve; });
+      const restoring = cloud.restoreCloudAccount();
+      await reachedServer;
+      try {
+        assert.equal(cloud.getCloudState().status, 'connecting');
+        assert.equal(cloud.isCloudActive(), true);
+        assert.deepEqual(cloud.readValue('sangnav_links', []), cachedLinks);
+        const before = commits.length;
+        cloud.writeValue(historyKey, ['edited-during-startup'], []);
+        await cloud.saveCloud();
+        assert.equal(commits.length, before);
+        assert.deepEqual(cloud.readValue(historyKey, []), ['edited-during-startup']);
+      } finally {
+        release();
+        pauseCapabilities = null;
+        onCapabilities = null;
+        await restoring;
+      }
+      assert.deepEqual(cloud.readValue(historyKey, []), ['edited-during-startup']);
+      await cloud.saveCloud();
+      assert.equal(cloud.getCloudState().status, 'saved');
+      assert.deepEqual(content('search/history.json'), ['edited-during-startup']);
+    });
+    await context.test('startup network failure retains cached navigation and can reconnect without a reload', async () => {
+      const account = (await recallAccount())!;
+      const cachedLinks = cloud.readValue('sangnav_links', DEFAULT_LINKS);
+      await cloud.logoutCloud();
+      await rememberAccount(account);
+      failCapabilities = true;
+      try { await cloud.restoreCloudAccount(); }
+      finally { failCapabilities = false; }
+      assert.equal(cloud.getCloudState().status, 'error');
+      assert.equal(cloud.isCloudActive(), true);
+      assert.deepEqual(cloud.readValue('sangnav_links', []), cachedLinks);
+      cloud.writeValue(historyKey, ['edited-offline'], []);
+      await cloud.reconcileCloud(false);
+      assert.equal(cloud.getCloudState().status, 'saved');
+      assert.deepEqual(content('search/history.json'), ['edited-offline']);
     });
     await context.test('same URL shares data across accounts and different URLs are isolated', async () => {
       cloud.writeValue(historyKey, ['shared-workspace'], []);

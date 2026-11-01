@@ -42,7 +42,7 @@ const capabilities: Capabilities = {
 };
 
 test('resource round-trip, isolated changes, capability checks and transaction limits', () => {
-  const values = { sangnav_links: DEFAULT_LINKS, sangnav_categories: DEFAULT_CATEGORIES, sangnav_search_history: ['hello'], sangnav_settings: DEFAULT_SETTINGS, sangnav_analytics_visits: [{ dateStr: '2026-11-01' }, { dateStr: '2026-11-02' }] };
+  const values = { sangnav_links: DEFAULT_LINKS, sangnav_categories: DEFAULT_CATEGORIES, sangnav_settings: DEFAULT_SETTINGS };
   const before = splitDocuments(values);
   assert.deepEqual(joinDocuments(before, {}), values);
   const edited = { ...DEFAULT_LINKS[0], title: 'Changed' };
@@ -89,8 +89,9 @@ test('attachment validation preserves the known ID after integrity failure', asy
 
 test('workspace resources HTTP contract, incremental saves, drafts, renewal and attachments', async context => {
   const local = new Map<string, string>();
-  Object.defineProperty(globalThis, 'localStorage', { value: { getItem: (key: string) => local.get(key) ?? null, setItem: (key: string, value: string) => local.set(key, value), removeItem: (key: string) => local.delete(key) }, configurable: true });
-  Object.defineProperty(globalThis, 'window', { value: { addEventListener() {} }, configurable: true });
+  const handlers = new Map<string, EventListener[]>();
+  Object.defineProperty(globalThis, 'localStorage', { value: { get length() { return local.size; }, key: (index: number) => [...local.keys()][index] ?? null, getItem: (key: string) => local.get(key) ?? null, setItem: (key: string, value: string) => local.set(key, value), removeItem: (key: string) => local.delete(key) }, configurable: true });
+  Object.defineProperty(globalThis, 'window', { value: { addEventListener(type: string, handler: EventListener) { handlers.set(type, [...handlers.get(type) || [], handler]); } }, configurable: true });
   const cloud = await import('./cloudStorage');
   type Stored = { id: string; version: number; body: ResourceBody };
   type Operation = { action: 'put' | 'delete'; id: string; expectedVersion: number | null; resource?: ResourceBody };
@@ -285,7 +286,7 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
   const url = `${base}${workspaceId}`;
   const data = () => spaces.get(workspaceId)!;
   const content = (key: string) => (data().get(key)!.body.jsonContent as { value: unknown }).value;
-  const historyKey = 'sangnav_search_history';
+  const historyKey = 'sangnav_active_engine';
   const login = (username = 'alice', workspace = url, importLocal = false) => cloud.loginCloud(workspace, username, 'test-only-password', importLocal, {});
   const defaults = { sangnav_links: DEFAULT_LINKS, sangnav_categories: DEFAULT_CATEGORIES, sangnav_engines: DEFAULT_SEARCH_ENGINES, sangnav_settings: DEFAULT_SETTINGS, sangnav_search_history: [], sangnav_active_engine: 'bing', sangnav_secret_links: [], sangnav_secret_categories: [], sangnav_secret_pattern: null, sangnav_secret_autolock: false, sangnav_analytics_visits: [], sangnav_analytics_searches: [] };
   for (const [key, value] of Object.entries(defaults)) cloud.readValue(key, value);
@@ -351,20 +352,23 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       cloud.writeValue('sangnav_secret_categories', [], []);
     });
     await context.test('initializes independent resources and isolates one changed bookmark', async () => {
-      cloud.writeValue(historyKey, ['local-only'], []);
+      cloud.writeValue(historyKey, 'local-only', 'bing');
       await login('alice', url, true);
       await cloud.saveCloud();
       assert.equal(cloud.getCloudState().status, 'saved');
-      assert.deepEqual(content('search/history.json'), ['local-only']);
+      assert.equal(content('search/active.json'), 'local-only');
       assert.equal(content('secret/pattern.json'), null);
       assert(![...data().keys()].some(key => key.includes('users/')));
       assert.equal(content('app.json') && data().get('app.json')!.body.format, RESOURCE_FORMAT);
       const first = DEFAULT_LINKS[0];
       cloud.writeValue<typeof DEFAULT_LINKS>('sangnav_links', previous => previous.map(link => link.id === first.id ? { ...link, title: 'Edited bookmark' } : link), []);
+      const leaving = new Event('beforeunload', { cancelable: true });
+      for (const handler of handlers.get('beforeunload') || []) handler(leaving);
+      assert.equal(leaving.defaultPrevented, true);
       await cloud.saveCloud();
       assert.deepEqual(commits.at(-1)!.map(item => item.resource?.key), [`links/${first.id}.json`]);
       assert.equal(commits.at(-1)![0].expectedVersion, 1);
-      assert.equal(local.get(historyKey), '["local-only"]');
+      assert.equal(local.get(historyKey), '"local-only"');
     });
     await context.test('startup serves cached bookmarks before the network and preserves edits while loading', async () => {
       const account = (await recallAccount())!;
@@ -381,20 +385,20 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
         assert.equal(cloud.isCloudActive(), true);
         assert.deepEqual(cloud.readValue('sangnav_links', []), cachedLinks);
         const before = commits.length;
-        cloud.writeValue(historyKey, ['edited-during-startup'], []);
+        cloud.writeValue(historyKey, 'edited-during-startup', 'bing');
         await cloud.saveCloud();
         assert.equal(commits.length, before);
-        assert.deepEqual(cloud.readValue(historyKey, []), ['edited-during-startup']);
+        assert.equal(cloud.readValue(historyKey, ''), 'edited-during-startup');
       } finally {
         release();
         pauseCapabilities = null;
         onCapabilities = null;
         await restoring;
       }
-      assert.deepEqual(cloud.readValue(historyKey, []), ['edited-during-startup']);
+      assert.equal(cloud.readValue(historyKey, ''), 'edited-during-startup');
       await cloud.saveCloud();
       assert.equal(cloud.getCloudState().status, 'saved');
-      assert.deepEqual(content('search/history.json'), ['edited-during-startup']);
+      assert.equal(content('search/active.json'), 'edited-during-startup');
     });
     await context.test('startup network failure retains cached navigation and can reconnect without a reload', async () => {
       const account = (await recallAccount())!;
@@ -407,42 +411,46 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       assert.equal(cloud.getCloudState().status, 'error');
       assert.equal(cloud.isCloudActive(), true);
       assert.deepEqual(cloud.readValue('sangnav_links', []), cachedLinks);
-      cloud.writeValue(historyKey, ['edited-offline'], []);
+      cloud.writeValue(historyKey, 'edited-offline', 'bing');
       await cloud.reconcileCloud(false);
       assert.equal(cloud.getCloudState().status, 'saved');
-      assert.deepEqual(content('search/history.json'), ['edited-offline']);
+      assert.equal(content('search/active.json'), 'edited-offline');
     });
     await context.test('same URL shares data across accounts and different URLs are isolated', async () => {
-      cloud.writeValue(historyKey, ['shared-workspace'], []);
+      cloud.writeValue(historyKey, 'shared-workspace', 'bing');
       await cloud.saveCloud();
       await cloud.logoutCloud();
       await login('bob');
-      assert.deepEqual(cloud.readValue(historyKey, []), ['shared-workspace']);
+      assert.equal(cloud.readValue(historyKey, ''), 'shared-workspace');
       assert(reads.some(query => query.includes('page=2')));
       await cloud.logoutCloud();
       await login('alice', `${base}ZyXwVu9876_-`);
-      assert.deepEqual(cloud.readValue(historyKey, []), []);
+      assert.equal(cloud.readValue(historyKey, ''), 'bing');
       await cloud.saveCloud();
       await cloud.logoutCloud();
       await login();
-      assert.deepEqual(cloud.readValue(historyKey, []), ['shared-workspace']);
+      assert.equal(cloud.readValue(historyKey, ''), 'shared-workspace');
     });
-    await context.test('statistics use date shards without changing bookmark resources', async () => {
+    await context.test('statistics and search history never dirty configuration or block navigation', async () => {
       const analytics = await import('./analyticsDb');
       const bookmark = data().get(`links/${DEFAULT_LINKS[0].id}.json`)!;
       const before = bookmark.version;
+      const commitCount = commits.length;
       await analytics.recordVisit(DEFAULT_LINKS[0]);
       await cloud.saveCloud();
-      const day = new Date().toISOString().split('T')[0];
-      assert.deepEqual(commits.at(-1)!.map(item => item.resource?.key), [`analytics/visits/${day}.json`]);
       assert.equal(data().get(`links/${DEFAULT_LINKS[0].id}.json`)!.version, before);
       await analytics.recordSearch('query', DEFAULT_SEARCH_ENGINES[0]);
+      cloud.writeValue('sangnav_search_history', ['query'], []);
+      assert.strictEqual(cloud.readValue('sangnav_search_history', []), cloud.readValue('sangnav_search_history', []));
       await cloud.saveCloud();
-      assert.deepEqual(commits.at(-1)!.map(item => item.resource?.key), [`analytics/searches/${day}.json`]);
-      await analytics.clearAllAnalytics();
-      await cloud.saveCloud();
-      assert(commits.at(-1)!.every(item => item.action === 'delete'));
-      assert(!data().has(`analytics/visits/${day}.json`));
+      assert.equal(commits.length, commitCount);
+      assert.equal(cloud.getCloudState().status, 'saved');
+      assert.equal([...local.keys()].filter(key => key.startsWith('sangnav_events:')).length, 2);
+      const leaving = new Event('beforeunload', { cancelable: true });
+      for (const handler of handlers.get('beforeunload') || []) handler(leaving);
+      assert.equal(leaving.defaultPrevented, false);
+      assert(![...data().keys()].some(key => key.startsWith('analytics/')));
+      await assert.rejects(analytics.clearAllAnalytics(), /不支持删除/);
     });
     await context.test('stable totals and unique keys cannot publish an incomplete view or trigger deletion', async () => {
       const before = cloud.readValue('sangnav_links', DEFAULT_LINKS);
@@ -469,7 +477,7 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       const remote = data().get('settings.json')!;
       remote.version++;
       (remote.body.jsonContent as { value: Record<string, unknown> }).value.showClock = false;
-      cloud.writeValue(historyKey, ['independent-edit'], []);
+      cloud.writeValue(historyKey, 'independent-edit', 'bing');
       await cloud.saveCloud();
       assert.equal(cloud.getCloudState().status, 'saved');
       assert.equal((content('settings.json') as Record<string, unknown>).showClock, false);
@@ -478,16 +486,16 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       assert.equal(cloud.readValue('sangnav_settings', DEFAULT_SETTINGS).showClock, false);
     });
     await context.test('never overwrites a reserved key occupied by an unknown format', async () => {
-      const history = data().get('search/history.json')!;
+      const history = data().get('search/active.json')!;
       history.body.format = 'future.application';
       await cloud.logoutCloud();
       await login();
       const before = commits.length;
-      cloud.writeValue(historyKey, ['must-not-overwrite'], []);
+      cloud.writeValue(historyKey, 'must-not-overwrite', 'bing');
       await cloud.saveCloud();
       assert.equal(cloud.getCloudState().status, 'error');
       assert.equal(commits.length, before);
-      assert.equal(data().get('search/history.json')!.body.format, 'future.application');
+      assert.equal(data().get('search/active.json')!.body.format, 'future.application');
       history.body.format = RESOURCE_FORMAT;
       await cloud.reconcileCloud(true);
     });
@@ -508,28 +516,28 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       assert.equal(data().get(key)!.version, 1);
     });
     await context.test('retains conflict drafts, including after logout and re-login', async () => {
-      const remote = data().get('search/history.json')!;
+      const remote = data().get('search/active.json')!;
       remote.version++;
-      remote.body.jsonContent = { value: ['other-device'] };
-      cloud.writeValue(historyKey, ['draft'], []);
+      remote.body.jsonContent = { value: 'other-device' };
+      cloud.writeValue(historyKey, 'draft', 'bing');
       await cloud.saveCloud();
       assert.equal(cloud.getCloudState().status, 'conflict');
       await cloud.logoutCloud();
       await login('bob');
-      assert.deepEqual(cloud.readValue(historyKey, []), ['other-device']);
+      assert.equal(cloud.readValue(historyKey, ''), 'other-device');
       await cloud.logoutCloud();
       await login();
-      assert.deepEqual(cloud.readValue(historyKey, []), ['draft']);
+      assert.equal(cloud.readValue(historyKey, ''), 'draft');
       const before = commits.length;
       await cloud.reconcileCloud(false);
       assert.equal(cloud.getCloudState().status, 'conflict');
       assert.equal(commits.length, before);
       await cloud.reconcileCloud(true);
-      assert.deepEqual(cloud.readValue(historyKey, []), ['other-device']);
+      assert.equal(cloud.readValue(historyKey, ''), 'other-device');
     });
     await context.test('checks uncertain results instead of replaying committed writes', async () => {
       failAfter = true;
-      cloud.writeValue(historyKey, ['committed-response-lost'], []);
+      cloud.writeValue(historyKey, 'committed-response-lost', 'bing');
       await cloud.saveCloud();
       assert.equal(cloud.getCloudState().status, 'unconfirmed');
       const before = commits.length;
@@ -539,20 +547,20 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       assert.equal(cloud.getCloudState().status, 'saved');
       assert.equal(commits.length, before);
       failBefore = true;
-      cloud.writeValue(historyKey, ['safe-retry'], []);
+      cloud.writeValue(historyKey, 'safe-retry', 'bing');
       await cloud.saveCloud();
       assert.equal(cloud.getCloudState().status, 'unconfirmed');
       await cloud.logoutCloud();
       await login();
       assert.equal(cloud.getCloudState().status, 'unconfirmed');
       const pendingCommits = commits.length;
-      cloud.writeValue(historyKey, ['safe-retry-after-edit'], []);
+      cloud.writeValue(historyKey, 'safe-retry-after-edit', 'bing');
       assert.equal(cloud.getCloudState().status, 'unconfirmed');
       await cloud.saveCloud();
       assert.equal(commits.length, pendingCommits);
       await cloud.reconcileCloud(false);
       assert.equal(cloud.getCloudState().status, 'saved');
-      assert.deepEqual(content('search/history.json'), ['safe-retry-after-edit']);
+      assert.equal(content('search/active.json'), 'safe-retry-after-edit');
     });
     await context.test('related category deletion and link changes are atomic', async () => {
       const originalCategories = cloud.readValue('sangnav_categories', DEFAULT_CATEGORIES);
@@ -573,15 +581,15 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       let release!: () => void;
       pauseCommit = new Promise(resolve => { release = resolve; });
       const committed = new Promise<void>(resolve => { onCommit = resolve; });
-      cloud.writeValue(historyKey, ['first'], []);
+      cloud.writeValue(historyKey, 'first', 'bing');
       const saving = cloud.saveCloud();
       await committed;
-      cloud.writeValue(historyKey, ['second'], []);
+      cloud.writeValue(historyKey, 'second', 'bing');
       release();
       await saving;
       assert.equal(cloud.getCloudState().status, 'pending');
       await cloud.saveCloud();
-      assert.deepEqual(content('search/history.json'), ['second']);
+      assert.equal(content('search/active.json'), 'second');
     });
     await context.test('wallpapers are separate verified attachments, reused after failed commits', async () => {
       const image = `data:image/png;base64,${Buffer.from('test-image-bytes').toString('base64')}`;
@@ -604,16 +612,16 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       assert.equal(cloud.readValue('sangnav_settings', DEFAULT_SETTINGS).customWallpaperUrl, image);
       await cloud.logoutCloud();
       corruptDownload = true;
-      await assert.rejects(login(), /校验失败/);
-      corruptDownload = false;
       await login();
+      assert.equal(cloud.readValue('sangnav_settings', DEFAULT_SETTINGS).customWallpaperUrl, image);
+      corruptDownload = false;
     });
     await context.test('enforces resource limits without uploading a whole snapshot attachment', async () => {
       serverCaps.limits.resourceBytes = 100;
       await cloud.logoutCloud();
       await login();
       const before = uploadCount;
-      cloud.writeValue(historyKey, ['x'.repeat(200)], []);
+      cloud.writeValue(historyKey, 'x'.repeat(200), 'bing');
       await cloud.saveCloud();
       assert.equal(cloud.getCloudState().status, 'error');
       assert.equal(uploadCount, before);
@@ -630,7 +638,7 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       await cloud.restoreCloudAccount();
       assert.equal(loginCount, before);
       revoked.add((await recallAccount())!.session.accessToken);
-      cloud.writeValue(historyKey, ['renewed'], []);
+      cloud.writeValue(historyKey, 'renewed', 'bing');
       await cloud.saveCloud();
       assert.equal(loginCount, before + 1);
       assert.equal(cloud.getCloudState().status, 'saved');
@@ -645,11 +653,11 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
     await context.test('stops credential retries after password rejection and preserves drafts', async () => {
       rejectLogin = true;
       revoked.add((await recallAccount())!.session.accessToken);
-      cloud.writeValue(historyKey, ['draft-on-password-reset'], []);
+      cloud.writeValue(historyKey, 'draft-on-password-reset', 'bing');
       await cloud.saveCloud();
       assert.equal(cloud.getCloudState().status, 'expired');
       assert.equal(await recallAccount(), null);
-      assert.deepEqual(cloud.readValue(historyKey, []), ['draft-on-password-reset']);
+      assert.equal(cloud.readValue(historyKey, ''), 'draft-on-password-reset');
       await cloud.logoutCloud();
       rejectLogin = false;
     });

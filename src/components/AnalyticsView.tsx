@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useSyncExternalStore, useRef } from 'react';
 import { 
   BarChart3, 
   Clock, 
@@ -16,15 +16,13 @@ import {
 import { 
   getAnalyticsDashboardData, 
   clearAllAnalytics, 
-  LinkClickStat, 
   HourlyStat, 
-  SearchQueryStat, 
-  EngineStat 
 } from '../services/analyticsDb';
 import { getFaviconUrl, getInitialColor, formatUrl } from '../utils/urlUtils';
 import { CachedFavicon } from './CachedFavicon';
 import type { FaviconProvider, NavLinkItem } from '../types/navigation';
 import { isCloudActive } from '../services/cloudStorage';
+import { getEventSyncMessage, subscribeEventSync, type AnalyticsRange } from '../services/cloudEvents';
 
 interface AnalyticsViewProps {
   onOpenLink?: (url: string) => void;
@@ -33,37 +31,35 @@ interface AnalyticsViewProps {
 }
 
 export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, faviconProvider, links = [] }) => {
-  const [timeRange, setTimeRange] = useState<'all' | '7days' | 'today'>('all');
+  const [timeRange, setTimeRange] = useState<AnalyticsRange>('30days');
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<{
-    totalVisits: number;
-    totalSearches: number;
-    topLinks: LinkClickStat[];
-    hourlyStats: HourlyStat[];
-    peakHour: { hour: number; count: number; label: string };
-    topQueries: SearchQueryStat[];
-    engineStats: EngineStat[];
-    recentSearches: any[];
-  } | null>(null);
+  const [data, setData] = useState<Awaited<ReturnType<typeof getAnalyticsDashboardData>> | null>(null);
 
   const [activeHoverHour, setActiveHoverHour] = useState<HourlyStat | null>(null);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [clearSuccess, setClearSuccess] = useState(false);
+  const [error, setError] = useState('');
+  const eventMessage = useSyncExternalStore(subscribeEventSync, getEventSyncMessage);
+  const loadRequest = useRef(0);
 
   const loadData = useCallback(async () => {
+    const request = ++loadRequest.current;
     setLoading(true);
+    setError('');
     try {
       const res = await getAnalyticsDashboardData(timeRange);
-      setData(res);
+      if (request === loadRequest.current) setData(res);
     } catch (e) {
+      if (request === loadRequest.current) setError(e instanceof Error ? e.message : '统计暂时不可用');
       console.warn('Load analytics error:', e);
     } finally {
-      setLoading(false);
+      if (request === loadRequest.current) setLoading(false);
     }
   }, [timeRange]);
 
   useEffect(() => {
     loadData();
+    return () => { loadRequest.current++; };
   }, [loadData]);
 
   const handleExecuteClear = async () => {
@@ -73,7 +69,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, favico
       setData({
         totalVisits: 0,
         totalSearches: 0,
+        uniqueDomains: 0,
+        uniqueQueries: 0,
         topLinks: [],
+        allRankedLinks: [],
         hourlyStats: new Array(24).fill(0).map((_, h) => ({
           hour: h,
           label: `${h.toString().padStart(2, '0')}:00`,
@@ -129,7 +128,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, favico
           <div className="flex items-center bg-theme-base border border-theme-default p-0.5 rounded-xl">
             {(
               [
-                { id: 'all', label: '全部历史' },
+                { id: '30days', label: '近 30 天' },
                 { id: '7days', label: '近 7 天' },
                 { id: 'today', label: '今日' },
               ] as const
@@ -161,13 +160,17 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, favico
           <button
             type="button"
             onClick={() => setShowConfirmClear(true)}
-            title="清空统计数据"
+            disabled={isCloudActive()}
+            title={isCloudActive() ? '云端事件不支持删除' : '清空统计数据'}
             className="p-1.5 text-theme-muted hover:text-red-500 bg-theme-base hover:bg-red-500/10 border border-theme-default hover:border-red-500/30 rounded-xl transition-colors cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
+
+      {error && <p role="alert" className="text-xs text-red-500">{error}</p>}
+      {isCloudActive() && eventMessage && <p role="status" className="text-xs text-amber-500">{eventMessage}</p>}
 
       {/* Confirmation Banner for Clear Action (In-UI, no window.confirm) */}
       {showConfirmClear && (
@@ -216,7 +219,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, favico
             <span className="text-xs font-normal text-theme-muted ml-1">次</span>
           </div>
           <div className="text-[10px] text-theme-muted truncate">
-            {data?.topLinks.length ? `覆盖 ${data.topLinks.length} 个独立站点` : '点击书签开始实时统计'}
+            {data?.uniqueDomains ? `覆盖 ${data.uniqueDomains} 个独立站点` : '暂无访问记录'}
           </div>
         </div>
 
@@ -243,7 +246,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onOpenLink, favico
             <span className="text-xs font-normal text-theme-muted ml-1">次</span>
           </div>
           <div className="text-[10px] text-theme-muted truncate">
-            {data?.topQueries.length ? `累计 ${data.topQueries.length} 个不同词汇` : '在主页键入搜索'}
+            {data?.uniqueQueries ? `累计 ${data.uniqueQueries} 个不同词汇` : '暂无搜索记录'}
           </div>
         </div>
 

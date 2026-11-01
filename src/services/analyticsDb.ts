@@ -3,7 +3,9 @@
  * Stores local visit and search telemetry completely on-device.
  */
 
-import { isCloudActive, readValue, writeValue } from './cloudStorage';
+import { isCloudActive } from './cloudStorage';
+import { analyticsWindow, recordCloudEvent, readEvents, type AnalyticsRange } from './cloudEvents';
+import { getCloudDashboard } from './cloudAnalytics';
 
 export interface VisitRecord {
   id?: number;
@@ -60,16 +62,6 @@ export interface EngineStat {
 const DB_NAME = 'sangnav_analytics_db';
 const DB_VERSION = 1;
 
-export const CLOUD_VISITS_KEY = 'sangnav_analytics_visits';
-export const CLOUD_SEARCHES_KEY = 'sangnav_analytics_searches';
-readValue<VisitRecord[]>(CLOUD_VISITS_KEY, []);
-readValue<SearchRecord[]>(CLOUD_SEARCHES_KEY, []);
-
-function filterRecords<T extends { timestamp: number; dateStr: string }>(records: T[], timeRange: 'all' | '7days' | 'today'): T[] {
-  if (timeRange === '7days') return records.filter(record => record.timestamp >= Date.now() - 7 * 86400000);
-  if (timeRange === 'today') return records.filter(record => record.dateStr === new Date().toISOString().split('T')[0]);
-  return records;
-}
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -157,7 +149,7 @@ export async function recordVisit(link: {
     };
 
     if (isCloudActive()) {
-      writeValue<VisitRecord[]>(CLOUD_VISITS_KEY, previous => [...previous, record], []);
+      recordCloudEvent('analytics.visits', { ...record }, record.timestamp);
       return;
     }
     const db = await getDb();
@@ -197,7 +189,7 @@ export async function recordSearch(
     };
 
     if (isCloudActive()) {
-      writeValue<SearchRecord[]>(CLOUD_SEARCHES_KEY, previous => [...previous, record], []);
+      recordCloudEvent('analytics.searches', { ...record }, record.timestamp);
       return;
     }
     const db = await getDb();
@@ -217,28 +209,18 @@ export async function recordSearch(
 /**
  * Fetch all visit records within a time range
  */
-export async function getVisits(timeRange: 'all' | '7days' | 'today' = 'all'): Promise<VisitRecord[]> {
-  if (isCloudActive()) return filterRecords(readValue<VisitRecord[]>(CLOUD_VISITS_KEY, []), timeRange);
+export async function getVisits(timeRange: AnalyticsRange = '30days'): Promise<VisitRecord[]> {
+  if (isCloudActive()) return readEvents<VisitRecord>('analytics.visits', timeRange);
   try {
     const db = await getDb();
     return new Promise((resolve) => {
       const tx = db.transaction('visits', 'readonly');
       const store = tx.objectStore('visits');
-      const req = store.getAll();
+      const { from, to } = analyticsWindow(timeRange);
+      const req = store.index('by_timestamp').getAll(IDBKeyRange.bound(from, to, false, true));
 
       req.onsuccess = () => {
-        let results: VisitRecord[] = req.result || [];
-        const now = Date.now();
-
-        if (timeRange === '7days') {
-          const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-          results = results.filter((r) => r.timestamp >= sevenDaysAgo);
-        } else if (timeRange === 'today') {
-          const todayStr = new Date().toISOString().split('T')[0];
-          results = results.filter((r) => r.dateStr === todayStr);
-        }
-
-        resolve(results);
+        resolve(req.result || []);
       };
 
       req.onerror = () => resolve([]);
@@ -251,28 +233,18 @@ export async function getVisits(timeRange: 'all' | '7days' | 'today' = 'all'): P
 /**
  * Fetch all search records within a time range
  */
-export async function getSearches(timeRange: 'all' | '7days' | 'today' = 'all'): Promise<SearchRecord[]> {
-  if (isCloudActive()) return filterRecords(readValue<SearchRecord[]>(CLOUD_SEARCHES_KEY, []), timeRange);
+export async function getSearches(timeRange: AnalyticsRange = '30days'): Promise<SearchRecord[]> {
+  if (isCloudActive()) return readEvents<SearchRecord>('analytics.searches', timeRange);
   try {
     const db = await getDb();
     return new Promise((resolve) => {
       const tx = db.transaction('searches', 'readonly');
       const store = tx.objectStore('searches');
-      const req = store.getAll();
+      const { from, to } = analyticsWindow(timeRange);
+      const req = store.index('by_timestamp').getAll(IDBKeyRange.bound(from, to, false, true));
 
       req.onsuccess = () => {
-        let results: SearchRecord[] = req.result || [];
-        const now = Date.now();
-
-        if (timeRange === '7days') {
-          const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-          results = results.filter((r) => r.timestamp >= sevenDaysAgo);
-        } else if (timeRange === 'today') {
-          const todayStr = new Date().toISOString().split('T')[0];
-          results = results.filter((r) => r.dateStr === todayStr);
-        }
-
-        resolve(results);
+        resolve(req.result || []);
       };
 
       req.onerror = () => resolve([]);
@@ -285,7 +257,8 @@ export async function getSearches(timeRange: 'all' | '7days' | 'today' = 'all'):
 /**
  * Compute comprehensive analytics data for the dashboard
  */
-export async function getAnalyticsDashboardData(timeRange: 'all' | '7days' | 'today' = 'all') {
+export async function getAnalyticsDashboardData(timeRange: AnalyticsRange = '30days') {
+  if (isCloudActive()) return getCloudDashboard(timeRange);
   const [visits, searches] = await Promise.all([getVisits(timeRange), getSearches(timeRange)]);
 
   // 1. Link Clicks Bar Chart
@@ -373,6 +346,8 @@ export async function getAnalyticsDashboardData(timeRange: 'all' | '7days' | 'to
   return {
     totalVisits,
     totalSearches,
+    uniqueDomains: new Set(visits.map(visit => visit.domain || extractDomain(visit.url))).size,
+    uniqueQueries: Object.keys(queryMap).length,
     topLinks: sortedLinks.slice(0, 12),
     allRankedLinks: sortedLinks,
     hourlyStats,
@@ -455,9 +430,7 @@ export async function seedInitialAnalyticsIfEmpty() {
  */
 export async function clearAllAnalytics(): Promise<void> {
   if (isCloudActive()) {
-    writeValue(CLOUD_VISITS_KEY, [], []);
-    writeValue(CLOUD_SEARCHES_KEY, [], []);
-    return;
+    throw new Error('云端事件流不支持删除统计事件。');
   }
   if (typeof window !== 'undefined') {
     localStorage.setItem('sangnav_analytics_initialized', 'true');

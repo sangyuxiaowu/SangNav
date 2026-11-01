@@ -4,6 +4,7 @@ import { isManagedKey, joinDocuments, semanticJson, splitDocuments } from './clo
 import { AttachmentIntegrityError, loadResources, ReadRevisionChanged, UUID, validateCapabilities, type Capabilities, type Client, type StoredResource, type Upload } from './cloudProtocol';
 import { CommitResultUnconfirmed, diffDocuments, planBatches, saveBatch, type Change } from './cloudSync';
 import { buildStagedPlan, cancelStagedPlan, deleteStagedDraft, readStagedDraft, resumeStagedPlan, saveStagedDraft, StagedSessionUnavailable, validateStagedPlan, type StagedPlan } from './cloudStaged';
+import { cacheScope, cacheWrite, cachedAttachment, cloudChannel, readBaseline, withCloudLock } from './cloudCache';
 
 type Values = Record<string, unknown>;
 type Snapshot = { schemaVersion: 1; values: Values };
@@ -19,6 +20,7 @@ export type CloudState = {
 const listeners = new Set<() => void>();
 const defaults: Values = {};
 const local: Values = {};
+const localHistory = new Map<string, { raw: string | null; value: unknown }>();
 let values: Values = local;
 let state: CloudState = { status: 'local', username: '', workspaceUrl: '', message: '' };
 let session: Session | null = null;
@@ -41,6 +43,15 @@ let draftPersistenceFailed = false;
 let renewalTimer: ReturnType<typeof setTimeout> | undefined;
 let renewal: Promise<void> | null = null;
 const loginRetryUntil = new Map<string, number>();
+const tabId = (() => {
+  try {
+    const saved = sessionStorage.getItem('sangnav_cloud_tab');
+    const id = saved || crypto.randomUUID();
+    sessionStorage.setItem('sangnav_cloud_tab', id);
+    return id;
+  } catch { return crypto.randomUUID(); }
+})();
+function draftStorageKey(url: string, userId: string) { return `sangnav_cloud_draft:v3:${url}:${userId}:${tabId}`; }
 
 function scheduleRenewal(delay?: number) {
   clearTimeout(renewalTimer);
@@ -114,6 +125,18 @@ export function getCloudState() { return state; }
 export function isCloudActive() { return values !== local; }
 
 export function readValue<T>(key: string, initialValue: T): T {
+  if (key === 'sangnav_search_history') {
+    try {
+      const storageKey = `${key}:${draftKey || 'local'}`;
+      const raw = localStorage.getItem(storageKey);
+      const cached = localHistory.get(storageKey);
+      if (cached && cached.raw === raw) return cached.value as T;
+      const value = JSON.parse(raw || 'null') ?? initialValue;
+      localHistory.set(storageKey, { raw, value });
+      return value;
+    }
+    catch { return initialValue; }
+  }
   if (!(key in defaults)) defaults[key] = initialValue;
   if (!(key in local)) {
     try { local[key] = JSON.parse(localStorage.getItem(key) || 'null') ?? initialValue; }
@@ -125,6 +148,11 @@ export function readValue<T>(key: string, initialValue: T): T {
 export function writeValue<T>(key: string, value: T | ((previous: T) => T), initialValue: T) {
   if (state.status === 'connecting' && !isCloudActive()) return;
   const next = typeof value === 'function' ? (value as (previous: T) => T)(readValue(key, initialValue)) : value;
+  if (key === 'sangnav_search_history') {
+    try { localStorage.setItem(`${key}:${draftKey || 'local'}`, JSON.stringify(next)); } catch {}
+    emit();
+    return;
+  }
   values = { ...values, [key]: next };
   if (!isCloudActiveBeforeWrite()) {
     local[key] = next;
@@ -148,13 +176,39 @@ const client: Client = (path, options) => {
   if (!session) throw new CloudError(401, '请重新登录。');
   return request(`${state.workspaceUrl}${path}`, session.accessToken, options);
 };
-async function loadCurrent() {
+export function getCloudConnection() {
+  if (!session || !capabilities) return null;
+  const active = session;
+  const url = state.workspaceUrl;
+  const attempt = generation;
+  const scopedClient: Client = (path, options) => {
+    if (attempt !== generation || session?.resourceUserId !== active.resourceUserId || state.workspaceUrl !== url) throw new CloudError(401, '原云端连接已断开，事件保留在原账号队列。');
+    return request(`${url}${path}`, session.accessToken, options);
+  };
+  return { scope: cacheScope(url, active.resourceUserId), client: scopedClient, capabilities };
+}
+export function getCloudScope() { return session && draftKey ? cacheScope(state.workspaceUrl, session.resourceUserId) : null; }
+async function loadWorkspace(url: string, active: Session, caps: Capabilities, loadedUploads: Map<string, Upload>, force = false) {
+  const scope = cacheScope(url, active.resourceUserId);
+  return withCloudLock(scope, async () => {
+    let baseline = caps.features.includes('resources.read-fence') ? await readBaseline(scope).catch(() => undefined) : undefined;
+    if (baseline) {
+      try { validateSnapshot({ schemaVersion: 1, values: joinDocuments(new Map([...baseline.records].map(([key, record]) => [key, record.content])), defaults) }); }
+      catch { baseline = undefined; }
+    }
+    const remote = await loadResources((path, options) => request(`${url}${path}`, active.accessToken, options), (id, image) => cachedAttachment(scope, image, async () => {
+      const response = await authenticatedFetch(`${url}/attachments/${id}`, active.accessToken);
+      if (!response.ok) throw new CloudError(response.status, '壁纸附件下载失败。');
+      return response.arrayBuffer();
+    }), caps, loadedUploads, new Set([...records.keys(), ...splitDocuments(defaults).keys()]), baseline, force);
+    validateSnapshot({ schemaVersion: 1, values: joinDocuments(new Map([...remote.records].map(([key, record]) => [key, record.content])), defaults) });
+    if (remote.consistency === 'fenced') await cacheWrite('baselines', scope, { records: remote.records, blocked: remote.blocked, storeRevision: remote.storeRevision, checkedAt: remote.checkedAt });
+    return remote;
+  });
+}
+async function loadCurrent(force = true) {
   if (!session || !capabilities) throw new Error('云端连接尚未就绪。');
-  return loadResources(client, async id => {
-    const response = await authenticatedFetch(`${state.workspaceUrl}/attachments/${id}`, session!.accessToken);
-    if (!response.ok) throw new CloudError(response.status, '壁纸附件下载失败。');
-    return response.arrayBuffer();
-  }, capabilities, uploads, new Set([...records.keys(), ...splitDocuments(defaults).keys()]));
+  return loadWorkspace(state.workspaceUrl, session, capabilities, uploads, force);
 }
 function persistDraft() {
   try {
@@ -199,7 +253,7 @@ async function request<T>(url: string, token: string | null, options: RequestIni
     const retry = response.headers.get('Retry-After');
     const retryAfterMs = response.status === 429 ? Math.max(1000, retry && /^\d+$/.test(retry) ? Number(retry) * 1000 : retry && Number.isFinite(Date.parse(retry)) ? Date.parse(retry) - Date.now() : 60000) : 0;
     if (response.status === 429 && url.endsWith('/login')) loginRetryUntil.set(url, Date.now() + retryAfterMs);
-    const message = response.status === 429 ? `登录过于频繁，请在 ${Math.ceil(retryAfterMs / 1000)} 秒后重试。` : envelope?.msg || `请求失败（HTTP ${response.status}）`;
+    const message = response.status === 429 ? `请求受限，请在 ${Math.ceil(retryAfterMs / 1000)} 秒后重试。` : envelope?.msg || `请求失败（HTTP ${response.status}）`;
     throw new CloudError(response.status, message, retryAfterMs, envelope?.data);
   }
   const revision = new Headers(options.headers).get('If-Store-Revision');
@@ -230,7 +284,7 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
   let cachedUnconfirmed = false;
   try {
     if (useCache && existingSession) {
-      const key = `sangnav_cloud_draft:v2:${url}:${existingSession.resourceUserId}`;
+      const key = draftStorageKey(url, existingSession.resourceUserId);
       let cached: Draft | null = null;
       try {
         cached = await readStagedDraft<Draft>(key) || JSON.parse(localStorage.getItem(key) || 'null');
@@ -262,14 +316,10 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
     if (!authenticated.accessToken || !UUID.test(authenticated.resourceUserId) || authenticated.workspaceId !== url.split('/').pop() || !Number.isFinite(Date.parse(authenticated.expiresAt))) throw new Error('登录响应无效。');
     capabilities = validateCapabilities(await request<Capabilities>(`${url}/capabilities`, authenticated.accessToken));
     const loadedUploads = new Map<string, Upload>();
-    const remote = await loadResources((path, options) => request(`${url}${path}`, authenticated!.accessToken, options), async id => {
-      const response = await authenticatedFetch(`${url}/attachments/${id}`, authenticated!.accessToken);
-      if (!response.ok) throw new CloudError(response.status, '壁纸附件下载失败。');
-      return response.arrayBuffer();
-    }, capabilities, loadedUploads, splitDocuments(defaults).keys());
+    const remote = await loadWorkspace(url, authenticated, capabilities, loadedUploads);
     if (attempt !== generation) return;
     if (backgroundLoading && session) authenticated = session;
-    const durable = await readStagedDraft<Draft>(`sangnav_cloud_draft:v2:${url}:${authenticated.resourceUserId}`);
+    const durable = await readStagedDraft<Draft>(draftStorageKey(url, authenticated.resourceUserId));
     if (attempt !== generation) return;
     session = authenticated;
     records = remote.records;
@@ -278,7 +328,7 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
     identities = new Map();
     stagedPlan = undefined;
     storeRevision = remote.storeRevision;
-    draftKey = `sangnav_cloud_draft:v2:${url}:${authenticated.resourceUserId}`;
+    draftKey = draftStorageKey(url, authenticated.resourceUserId);
     const hasData = records.size > 0;
     atomicPublish = false;
     unverifiedAttachmentIds = [];
@@ -367,12 +417,32 @@ export function restoreCloudAccount(): Promise<void> {
 }
 
 export async function saveCloud() {
+  const connection = getCloudConnection();
+  if (!connection) return;
+  return withCloudLock(`${connection.scope}:commit`, async () => {
+    if (getCloudConnection()?.scope !== connection.scope) return;
+    await saveCloudLocked();
+  });
+}
+
+async function saveCloudLocked() {
   if (!session || !capabilities || !dirty || busy || backgroundLoading || ['error', 'conflict', 'expired', 'unconfirmed'].includes(state.status)) return;
   clearTimeout(timer);
   busy = true;
   const attempt = generation;
   updateState({ status: 'saving', message: '' });
   try {
+    const scope = cacheScope(state.workspaceUrl, session.resourceUserId);
+    const shared = capabilities.features.includes('resources.read-fence') ? await readBaseline(scope) : undefined;
+    if (shared && !stagedPlan) {
+      for (const change of changes()) {
+        const latest = shared.records.get(change.key);
+        if (latest?.id === change.id && latest.version === change.expectedVersion || !latest && change.expectedVersion === null) continue;
+        if (change.deleted ? !latest : latest && semanticJson(latest.content) === semanticJson(change.content)) {
+          if (latest) records.set(change.key, latest); else records.delete(change.key);
+        } else throw new CloudError(412, '其他标签页已更新此资源，请先核实云端状态。');
+      }
+    }
     validateCloudValues(snapshot().values);
     const pending = changes();
     if (pending.some(change => blocked.has(change.key))) throw new Error('逻辑键被未知格式占用，已保留该资源，请先人工处理。');
@@ -414,6 +484,8 @@ export async function saveCloud() {
     }
     dirty = changes().length > 0;
     if (!dirty) atomicPublish = false;
+    if (capabilities.features.includes('resources.read-fence')) await cacheWrite('baselines', scope, { records: new Map(records), blocked: new Set(blocked), checkedAt: 0 });
+    cloudChannel()?.postMessage({ scope });
     persistDraft();
     updateState({ status: dirty ? 'pending' : 'saved', message: '' });
   } catch (error) {
@@ -532,6 +604,11 @@ export function restoreCloudBackup(input: unknown) {
     scheduleSave();
   } else emit();
 }
+
+cloudChannel()?.addEventListener('message', event => {
+  if (event.data?.scope !== getCloudConnection()?.scope || busy || backgroundLoading) return;
+  void reconcileCloud(false);
+});
 
 window.addEventListener('beforeunload', event => {
   if (!isCloudActive() || !dirty) return;

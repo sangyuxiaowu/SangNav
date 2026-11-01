@@ -123,7 +123,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     }
 
     saveHistoryItem(targetQuery);
-    recordSearch(targetQuery, { id: activeEngine.id, name: activeEngine.name });
+    void recordSearch(targetQuery, { id: activeEngine.id, name: activeEngine.name });
     const targetUrl = activeEngine.url.replace('%s', encodeURIComponent(targetQuery));
     
     if (openInNewTab) {

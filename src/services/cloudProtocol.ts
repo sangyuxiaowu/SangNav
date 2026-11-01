@@ -3,8 +3,9 @@ import { isManagedKey, RESOURCE_FORMAT, semanticJson } from './cloudResources';
 export type Client = <T>(path: string, options?: RequestInit) => Promise<T>;
 export type StagedLimits = { stagedBatchOperations: number; stagedBatchBytes: number; stagedCommitOperations: number; stagedCommitBytes: number; stagedBatchCount: number; stagedOpenSessionsPerAccount: number; stagedOpenSessionsPerWorkspace: number; stagedWorkspaceBytes: number; stagedLifetimeSeconds: number; stagedReceiptSeconds: number };
 export type Limits = { resourceBytes: number; metadataBytes: number; attachmentBytes: number; requestBytes: number; commitOperations: number; resourceAttachments: number; pageSize: number } & Partial<StagedLimits>;
-export type Capabilities = { apiVersion: string; features: string[]; limits: Limits; authentication: { scheme: string; scope: string }; stagedCommits?: { idempotencyScope: string; batchIdentity: string; receiptSeconds: number; contentEncoding: string } };
+export type Capabilities = { apiVersion: string; features: string[]; limits: Limits; authentication: { scheme: string; scope: string }; stagedCommits?: { idempotencyScope: string; batchIdentity: string; receiptSeconds: number; contentEncoding: string }; eventStreams?: { batchEvents: number; eventBytes: number; batchBytes: number; pageEvents: number; pageBytes: number; appendRequestsPerMinute: number; idempotencyScope: string }; eventAggregation?: { rows: number; metrics: number; groupDimensions: number; requestBytes: number; concurrentQueries: number; operations: string[]; timeBuckets: string[] } };
 export type StoredResource = { id: string; version: number; content: unknown };
+export type ResourceBaseline = { records: Map<string, StoredResource>; blocked: Set<string>; storeRevision?: string; checkedAt: number };
 export type Upload = { id: string; sha256: string; size: number; contentType: string };
 export type ResourceBody = { key: string; title: string; format: string; formatVersion: number; kind: 'json'; contentType: 'application/json'; jsonContent: unknown; metadata: Record<string, never>; attachmentIds: string[] };
 type Summary = { id: string; key: string; version: number; format: string; formatVersion: number; kind: string };
@@ -83,7 +84,7 @@ export async function prepareResource(key: string, content: unknown, client: Cli
   return { key, title: key, format: RESOURCE_FORMAT, formatVersion: 1, kind: 'json', contentType: 'application/json', jsonContent, metadata: {}, attachmentIds };
 }
 
-async function loadResourcesOnce(client: Client, download: (id: string) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>, knownKeys: Iterable<string>) {
+async function loadResourcesOnce(client: Client, download: (id: string, image: Upload) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>, knownKeys: Iterable<string>, cached = new Map<string, StoredResource>()) {
   const records = new Map<string, StoredResource>();
   const blocked = new Set<string>();
   const seen = new Set<string>();
@@ -122,6 +123,11 @@ async function loadResourcesOnce(client: Client, download: (id: string) => Promi
   for (let offset = 0; offset < summaries.length; offset += 6) {
     await Promise.all(summaries.slice(offset, offset + 6).map(async summary => {
       if (!UUID.test(summary.id) || !Number.isSafeInteger(summary.version) || summary.version < 1) throw new Error('资源摘要无效。');
+      const previous = cached.get(summary.key);
+      if (previous?.id === summary.id && previous.version === summary.version && Object.hasOwn(previous, 'content')) {
+        records.set(summary.key, previous);
+        return;
+      }
       const resource = await client<Resource>(`/resources/${summary.id}`);
       if (resource?.summary?.key !== summary.key || resource.summary.id !== summary.id || resource.summary.version !== summary.version || resource.summary.format !== RESOURCE_FORMAT || resource.summary.formatVersion !== 1 || resource.summary.kind !== 'json' || !Array.isArray(resource.attachmentIds)) throw new Error('读取期间资源发生变化，请重新读取。');
       if (!resource.jsonContent || typeof resource.jsonContent !== 'object' || !Object.hasOwn(resource.jsonContent, 'value')) throw new Error('云端资源内容包络无效。');
@@ -131,7 +137,7 @@ async function loadResourcesOnce(client: Client, download: (id: string) => Promi
         if (wallpaper?.imageAttachment) {
           const image = wallpaper.imageAttachment as Upload;
           if (!['attachments', 'attachments.references'].every(feature => caps.features.includes(feature)) || !UUID.test(image.id) || !resource.attachmentIds.includes(image.id) || !/^image\/(png|jpeg|webp|gif|avif)$/.test(image.contentType) || !Number.isSafeInteger(image.size) || image.size > caps.limits.attachmentBytes) throw new Error('壁纸附件引用无效。');
-          const bytes = new Uint8Array(await download(image.id));
+          const bytes = new Uint8Array(await download(image.id, image));
           if (bytes.byteLength !== image.size || await sha256(bytes) !== image.sha256) throw new Error('壁纸下载大小或 SHA-256 校验失败。');
           let binary = '';
           for (let index = 0; index < bytes.length; index += 32768) binary += String.fromCharCode(...bytes.subarray(index, index + 32768));
@@ -156,21 +162,24 @@ async function loadResourcesOnce(client: Client, download: (id: string) => Promi
   return { records, blocked, consistency: 'unfenced' as const };
 }
 
-export async function loadResources(client: Client, download: (id: string) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>, knownKeys: Iterable<string> = []): Promise<{ records: Map<string, StoredResource>; blocked: Set<string>; consistency: 'fenced' | 'unfenced'; storeRevision?: string }> {
+export async function loadResources(client: Client, download: (id: string, image: Upload) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>, knownKeys: Iterable<string> = [], baseline?: ResourceBaseline, force = false): Promise<{ records: Map<string, StoredResource>; blocked: Set<string>; consistency: 'fenced' | 'unfenced'; storeRevision?: string; checkedAt: number }> {
+  if (baseline && [...baseline.records.values()].some(record => record.content === undefined || !UUID.test(record.id) || !Number.isSafeInteger(record.version) || record.version < 1)) baseline = undefined;
   const keys = [...knownKeys];
   const fenced = caps.features.includes('resources.read-fence');
+  if (fenced && baseline?.storeRevision !== undefined && !force && Date.now() - baseline.checkedAt < 300000) return { ...baseline, records: new Map(baseline.records), blocked: new Set(baseline.blocked), consistency: 'fenced' };
   for (let attempt = 0; attempt < 3; attempt++) {
     const bufferedUploads = new Map(uploads);
     const revision = fenced ? validateStoreRevision((await client<{ storeRevision: string }>('/read-state')).storeRevision) : undefined;
+    if (fenced && baseline && revision === baseline.storeRevision) return { ...baseline, records: new Map(baseline.records), blocked: new Set(baseline.blocked), consistency: 'fenced', checkedAt: Date.now() };
     const scoped: Client = (path, options = {}) => {
       const headers = new Headers(options.headers);
       if (revision !== undefined) headers.set('If-Store-Revision', revision);
       return client(path, { ...options, headers });
     };
     try {
-      const loaded = await loadResourcesOnce(scoped, download, caps, bufferedUploads, keys);
+      const loaded = await loadResourcesOnce(scoped, download, caps, bufferedUploads, fenced ? [] : keys, baseline?.records);
       for (const [hash, upload] of bufferedUploads) uploads.set(hash, upload);
-      return { ...loaded, consistency: fenced ? 'fenced' : 'unfenced', storeRevision: revision };
+      return { ...loaded, consistency: fenced ? 'fenced' : 'unfenced', storeRevision: revision, checkedAt: Date.now() };
     } catch (error) {
       const details = error && typeof error === 'object' && 'details' in error ? error.details : null;
       if (!error || typeof error !== 'object' || !('status' in error) || error.status !== 409 || !details || typeof details !== 'object' || !('reason' in details) || details.reason !== 'read_revision_changed' || attempt === 2) throw error;

@@ -33,7 +33,6 @@ import {
   restoreCloudBackup, 
   subscribeStorage 
 } from '../services/cloudStorage';
-import { CLOUD_SEARCHES_KEY, CLOUD_VISITS_KEY, getSearches, getVisits } from '../services/analyticsDb';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
   local: { 
@@ -195,9 +194,7 @@ export function CloudAccount() {
     const submittedPassword = password;
     setPassword('');
     await run(async () => {
-      const analytics = importLocal 
-        ? { [CLOUD_VISITS_KEY]: await getVisits(), [CLOUD_SEARCHES_KEY]: await getSearches() } 
-        : {};
+      const analytics = {};
       await loginCloud(workspaceUrl.trim(), username.trim(), submittedPassword, importLocal, analytics);
       try { 
         localStorage.setItem('sangnav_cloud_url', workspaceUrl.trim()); 
@@ -460,7 +457,7 @@ export function CloudAccount() {
                     <span>导出完整备份</span>
                   </div>
                   <p className="text-[11px] text-theme-muted leading-relaxed">
-                    将当前空间的全部公开/私密书签、分类、图案锁和统计保存为 JSON 完整备份。
+                    将当前空间的公开/私密书签、分类、图案锁和设置保存为 JSON 备份。
                   </p>
                 </div>
                 <button

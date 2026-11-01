@@ -8,11 +8,8 @@ const collections: Record<string, string> = {
 };
 const singles: Record<string, string> = {
   sangnav_engines: 'search/engines.json', sangnav_active_engine: 'search/active.json',
-  sangnav_search_history: 'search/history.json', sangnav_secret_pattern: 'secret/pattern.json',
+  sangnav_secret_pattern: 'secret/pattern.json',
   sangnav_secret_autolock: 'secret/autolock.json',
-};
-const analytics: Record<string, string> = {
-  sangnav_analytics_visits: 'analytics/visits', sangnav_analytics_searches: 'analytics/searches',
 };
 const wallpaperFields = ['customWallpaperUrl', 'wallpaperPreset', 'wallpaperBlur', 'wallpaperMaskOpacity'];
 
@@ -38,18 +35,6 @@ export function splitDocuments(values: CloudValues): Documents {
   for (const [field, key] of Object.entries(singles)) {
     if (field in values) documents.set(key, values[field]);
   }
-  for (const [field, prefix] of Object.entries(analytics)) {
-    const records = values[field] as { dateStr: string }[] | undefined;
-    if (!records) continue;
-    const days = new Map<string, unknown[]>();
-    for (const record of records) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(record.dateStr)) throw new Error('统计日期无效。');
-      const entries = days.get(record.dateStr) || [];
-      entries.push(record);
-      days.set(record.dateStr, entries);
-    }
-    for (const [day, entries] of days) documents.set(`${prefix}/${day}.json`, entries);
-  }
   if (values.sangnav_settings) {
     const settings = { ...values.sangnav_settings as Record<string, unknown> };
     const wallpaper: Record<string, unknown> = {};
@@ -64,8 +49,7 @@ export function splitDocuments(values: CloudValues): Documents {
 
 export function isManagedKey(key: string) {
   if (['app.json', 'settings.json', 'wallpaper.json', ...Object.values(singles)].includes(key)) return true;
-  return Object.values(collections).some(prefix => key.startsWith(`${prefix}/`) && !key.slice(prefix.length + 1).includes('/') && key.endsWith('.json'))
-    || Object.values(analytics).some(prefix => new RegExp(`^${prefix}/\\d{4}-\\d{2}-\\d{2}\\.json$`).test(key));
+  return Object.values(collections).some(prefix => key.startsWith(`${prefix}/`) && !key.slice(prefix.length + 1).includes('/') && key.endsWith('.json'));
 }
 
 export function joinDocuments(documents: Documents, defaults: CloudValues): CloudValues {
@@ -85,15 +69,6 @@ export function joinDocuments(documents: Documents, defaults: CloudValues): Clou
   }
   for (const [field, key] of Object.entries(singles)) {
     if (documents.has(key)) values[field] = documents.get(key);
-  }
-  for (const [field, prefix] of Object.entries(analytics)) {
-    const days = [...documents].filter(([key]) => key.startsWith(`${prefix}/`)).sort(([first], [second]) => first.localeCompare(second));
-    if (days.length) {
-      values[field] = days.flatMap(([key, entries]) => {
-        if (!Array.isArray(entries) || entries.some(entry => entry?.dateStr !== key.slice(prefix.length + 1, -5))) throw new Error('云端统计分片无效。');
-        return entries;
-      });
-    }
   }
   if (documents.has('settings.json') || documents.has('wallpaper.json')) {
     for (const key of ['settings.json', 'wallpaper.json']) {

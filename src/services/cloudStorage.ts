@@ -1,15 +1,15 @@
 import { validateCloudValues } from './cloudSchema';
 import { forgetAccount, recallAccount, rememberAccount } from './credentialVault';
 import { isManagedKey, joinDocuments, semanticJson, splitDocuments } from './cloudResources';
-import { loadResources, UUID, validateCapabilities, type Capabilities, type Client, type StoredResource, type Upload } from './cloudProtocol';
-import { diffDocuments, planBatches, saveBatch } from './cloudSync';
+import { AttachmentIntegrityError, loadResources, UUID, validateCapabilities, type Capabilities, type Client, type StoredResource, type Upload } from './cloudProtocol';
+import { CommitResultUnconfirmed, diffDocuments, planBatches, saveBatch, type Change } from './cloudSync';
 
 type Values = Record<string, unknown>;
 type Snapshot = { schemaVersion: 1; values: Values };
 type Session = { accessToken: string; expiresAt: string; resourceUserId: string; workspaceId: string };
-type Draft = { schemaVersion: 2; snapshot: Snapshot; records: [string, StoredResource][]; identities: [string, string][]; uploads: [string, Upload][] };
+type Draft = { schemaVersion: 2; snapshot: Snapshot; records: [string, StoredResource][]; identities: [string, string][]; uploads: [string, Upload][]; atomicPublish?: boolean; unconfirmed?: boolean; plan?: Change[]; unverifiedAttachmentIds?: string[] };
 export type CloudState = {
-  status: 'local' | 'connecting' | 'saved' | 'pending' | 'saving' | 'error' | 'conflict' | 'expired';
+  status: 'local' | 'connecting' | 'saved' | 'pending' | 'saving' | 'error' | 'conflict' | 'expired' | 'unconfirmed';
   username: string;
   workspaceUrl: string;
   message: string;
@@ -31,6 +31,8 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let generation = 0;
 let dirty = false;
 let busy = false;
+let atomicPublish = false;
+let unverifiedAttachmentIds: string[] = [];
 let draftPersistenceFailed = false;
 let renewalTimer: ReturnType<typeof setTimeout> | undefined;
 let renewal: Promise<void> | null = null;
@@ -129,7 +131,7 @@ export function writeValue<T>(key: string, value: T | ((previous: T) => T), init
   }
   dirty = true;
   persistDraft();
-  if (!['error', 'conflict', 'expired'].includes(state.status)) {
+  if (!['error', 'conflict', 'expired', 'unconfirmed'].includes(state.status)) {
     updateState({ status: 'pending', message: '' });
     scheduleSave();
   } else emit();
@@ -148,11 +150,12 @@ async function loadCurrent() {
     const response = await authenticatedFetch(`${state.workspaceUrl}/attachments/${id}`, session!.accessToken);
     if (!response.ok) throw new CloudError(response.status, '壁纸附件下载失败。');
     return response.arrayBuffer();
-  }, capabilities, uploads);
+  }, capabilities, uploads, new Set([...records.keys(), ...splitDocuments(defaults).keys()]));
 }
 function persistDraft() {
   try {
-    localStorage.setItem(draftKey, JSON.stringify({ schemaVersion: 2, snapshot: snapshot(), records: [...records], identities: [...identities], uploads: [...uploads] } satisfies Draft));
+    const plan = changes();
+    localStorage.setItem(draftKey, JSON.stringify({ schemaVersion: 2, snapshot: snapshot(), records: [...records], identities: [...identities], uploads: [...uploads], plan, atomicPublish, unconfirmed: state.status === 'unconfirmed', unverifiedAttachmentIds } satisfies Draft));
     draftPersistenceFailed = false;
   } catch { draftPersistenceFailed = true; }
 }
@@ -217,7 +220,7 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
       const response = await authenticatedFetch(`${url}/attachments/${id}`, authenticated!.accessToken);
       if (!response.ok) throw new CloudError(response.status, '壁纸附件下载失败。');
       return response.arrayBuffer();
-    }, capabilities, loadedUploads);
+    }, capabilities, loadedUploads, splitDocuments(defaults).keys());
     if (attempt !== generation) return;
     session = authenticated;
     records = remote.records;
@@ -226,6 +229,8 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
     identities = new Map();
     draftKey = `sangnav_cloud_draft:v2:${url}:${authenticated.resourceUserId}`;
     const hasData = records.size > 0;
+    atomicPublish = !hasData;
+    unverifiedAttachmentIds = [];
     const initial = { ...defaults, ...(hasData ? {} : importLocal ? { ...local, ...analytics } : {}) };
     values = validateSnapshot({ schemaVersion: 1, values: joinDocuments(new Map([...records].map(([key, record]) => [key, record.content])), initial) }).values;
     dirty = changes().length > 0;
@@ -238,6 +243,8 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
       const previous = new Map(recovered.records);
       if ([...previous].some(([key, record]) => !isManagedKey(key) || !record || !UUID.test(record.id) || !Number.isSafeInteger(record.version) || record.version < 1)) throw new Error('本机草稿版本无效。');
       identities = new Map(recovered.identities);
+      atomicPublish = recovered.atomicPublish ?? atomicPublish;
+      unverifiedAttachmentIds = recovered.unverifiedAttachmentIds || [];
       for (const [hash, upload] of recovered.uploads) uploads.set(hash, upload);
       const edits = diffDocuments(splitDocuments(savedDraft.values), previous, identities);
       const merged = new Map([...records].map(([key, record]) => [key, record.content]));
@@ -252,9 +259,9 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
       }
       values = validateSnapshot({ schemaVersion: 1, values: joinDocuments(merged, defaults) }).values;
       dirty = changes().length > 0;
-      updateState({ status: conflict ? 'conflict' : dirty ? 'pending' : 'saved', message: dirty ? '已恢复此空间中当前身份未保存的本机草稿。' : '' });
+      updateState({ status: recovered.unconfirmed && dirty ? 'unconfirmed' : conflict ? 'conflict' : dirty ? 'pending' : 'saved', message: recovered.unconfirmed && dirty ? '已恢复结果待确认的提交计划，请先核实云端状态。' : dirty ? '已恢复此空间中当前身份未保存的本机草稿。' : '' });
     }
-    if (dirty) { persistDraft(); if (state.status !== 'conflict') scheduleSave(); }
+    if (dirty) { persistDraft(); if (!['conflict', 'unconfirmed'].includes(state.status)) scheduleSave(); }
     try { await rememberAccount({ workspaceUrl: url, username: username.trim(), password, session: authenticated }); }
     catch { updateState({ message: '浏览器无法加密保存账户，当前登录有效，刷新后需重新登录。' }); }
     scheduleRenewal();
@@ -299,7 +306,7 @@ export function restoreCloudAccount(): Promise<void> {
 }
 
 export async function saveCloud() {
-  if (!session || !capabilities || !dirty || busy || ['error', 'conflict', 'expired'].includes(state.status)) return;
+  if (!session || !capabilities || !dirty || busy || ['error', 'conflict', 'expired', 'unconfirmed'].includes(state.status)) return;
   clearTimeout(timer);
   busy = true;
   const attempt = generation;
@@ -308,8 +315,8 @@ export async function saveCloud() {
     validateCloudValues(snapshot().values);
     const pending = changes();
     if (pending.some(change => blocked.has(change.key))) throw new Error('逻辑键被未知格式占用，已保留该资源，请先人工处理。');
-    const batches = planBatches(pending, capabilities);
     persistDraft();
+    const batches = planBatches(pending, capabilities, atomicPublish);
     for (const batch of batches) {
       const result = await saveBatch(batch, client, capabilities, uploads, persistDraft);
       if (attempt !== generation) return;
@@ -320,12 +327,15 @@ export async function saveCloud() {
       persistDraft();
     }
     dirty = changes().length > 0;
+    if (!dirty) atomicPublish = false;
     if (dirty) persistDraft(); else localStorage.removeItem(draftKey);
     updateState({ status: dirty ? 'pending' : 'saved', message: '' });
   } catch (error) {
     if (attempt !== generation) return;
     const status = error instanceof CloudError ? error.status : 0;
-    updateState({ status: status === 401 ? 'expired' : [409, 412].includes(status) ? 'conflict' : 'error', message: status === 401 ? '登录已失效，本机草稿已保留，请重新登录。' : [409, 412].includes(status) ? '云端版本已改变，本机修改已保留。' : error instanceof Error ? error.message : '保存失败，本机草稿已保留。' });
+    if (error instanceof AttachmentIntegrityError && error.attachmentId) unverifiedAttachmentIds.push(error.attachmentId);
+    updateState({ status: error instanceof CommitResultUnconfirmed ? 'unconfirmed' : status === 401 ? 'expired' : [409, 412].includes(status) ? 'conflict' : 'error', message: error instanceof AttachmentIntegrityError ? `${error.message} 附件 ID：${error.attachmentId || '未返回'}` : status === 401 ? '登录已失效，本机草稿已保留，请重新登录。' : [409, 412].includes(status) ? '云端版本已改变，本机修改已保留。' : error instanceof Error ? error.message : '保存失败，本机草稿已保留。' });
+    persistDraft();
     if (status === 429) scheduleRenewal(Math.max(60000, error instanceof CloudError ? error.retryAfterMs : 0));
   } finally {
     busy = false;
@@ -336,6 +346,7 @@ export async function saveCloud() {
 export async function reconcileCloud(useRemote: boolean) {
   if (!session || busy) return;
   busy = true;
+  const wasUnconfirmed = state.status === 'unconfirmed';
   try {
     const remote = await loadCurrent();
     blocked = remote.blocked;
@@ -344,6 +355,7 @@ export async function reconcileCloud(useRemote: boolean) {
       records = remote.records;
       identities.clear();
       dirty = false;
+      atomicPublish = false;
       localStorage.removeItem(draftKey);
       updateState({ status: 'saved', message: '' });
     } else {
@@ -357,16 +369,17 @@ export async function reconcileCloud(useRemote: boolean) {
         if (change.deleted) merged.delete(change.key); else merged.set(change.key, change.content);
         const base = records.get(change.key);
         if (base) remote.records.set(change.key, base); else remote.records.delete(change.key);
-        if (!latest && change.expectedVersion !== null) identities.delete(change.key);
+        if (!latest && change.expectedVersion === null) identities.set(change.key, crypto.randomUUID());
       }
       values = validateSnapshot({ schemaVersion: 1, values: joinDocuments(merged, defaults) }).values;
       records = remote.records;
       dirty = changes().length > 0;
+      if (!dirty) atomicPublish = false;
       if (dirty) persistDraft(); else localStorage.removeItem(draftKey);
       updateState({ status: conflict ? 'conflict' : dirty ? 'pending' : 'saved', message: conflict ? '同一资源已被其他设备修改，本机草稿已保留。请备份后选择云端版本。' : '' });
     }
   } catch (error) {
-    updateState({ status: error instanceof CloudError && error.status === 401 ? 'expired' : 'error', message: error instanceof Error ? error.message : '核实云端状态失败。' });
+    updateState({ status: error instanceof CloudError && error.status === 401 ? 'expired' : wasUnconfirmed ? 'unconfirmed' : 'error', message: `${wasUnconfirmed ? '结果仍待确认，未重放提交。' : ''}${error instanceof Error ? error.message : '核实云端状态失败。'}` });
   } finally { busy = false; }
   if (dirty && state.status === 'pending') await saveCloud();
 }
@@ -406,9 +419,10 @@ export function restoreCloudBackup(input: unknown) {
   const backup = validateSnapshot(input);
   splitDocuments(backup.values);
   values = { ...backup.values };
+  atomicPublish = true;
   dirty = true;
   persistDraft();
-  if (!['error', 'conflict', 'expired'].includes(state.status)) {
+  if (!['error', 'conflict', 'expired', 'unconfirmed'].includes(state.status)) {
     updateState({ status: 'pending', message: '' });
     scheduleSave();
   } else emit();

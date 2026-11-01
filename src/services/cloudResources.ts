@@ -102,6 +102,13 @@ export function joinDocuments(documents: Documents, defaults: CloudValues): Clou
     }
     values.sangnav_settings = { ...defaults.sangnav_settings as object, ...documents.get('settings.json') as object, ...documents.get('wallpaper.json') as object };
   }
+  for (const [linksKey, categoriesKey] of [['sangnav_links', 'sangnav_categories'], ['sangnav_secret_links', 'sangnav_secret_categories']]) {
+    const links = values[linksKey] as { categoryId?: string }[] | undefined;
+    const categories = values[categoriesKey] as { id?: string }[] | undefined;
+    if (!Array.isArray(links) || !Array.isArray(categories)) continue;
+    const knownCategories = new Set(categories.map(category => category.id));
+    if (links.some(link => !knownCategories.has(link?.categoryId))) throw new Error('书签与分类引用不完整；保留当前本地视图，需重新完整加载。');
+  }
   return values;
 }
 

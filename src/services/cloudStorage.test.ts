@@ -7,7 +7,7 @@ import 'fake-indexeddb/auto';
 import { DEFAULT_CATEGORIES, DEFAULT_LINKS, DEFAULT_SEARCH_ENGINES, DEFAULT_SETTINGS } from '../data/defaultData';
 import { forgetAccount, recallAccount, rememberAccount } from './credentialVault';
 import { joinDocuments, RESOURCE_FORMAT, semanticJson, splitDocuments } from './cloudResources';
-import { sha256, validateCapabilities, type Capabilities, type ResourceBody } from './cloudProtocol';
+import { AttachmentIntegrityError, prepareResource, sha256, validateCapabilities, type Capabilities, type ResourceBody } from './cloudProtocol';
 import { diffDocuments, planBatches, saveBatch } from './cloudSync';
 
 test('commit serialization and documentation use the verified action/id contract', async () => {
@@ -58,6 +58,60 @@ test('resource round-trip, isolated changes, capability checks and transaction l
   assert.doesNotThrow(() => planBatches(diffDocuments(before, new Map(), new Map()), capabilities));
   const many = splitDocuments({ sangnav_links: Array.from({ length: 51 }, (_, index) => ({ id: `link-${index}` })) });
   assert.throws(() => planBatches(diffDocuments(many, new Map(), new Map()), capabilities), /不能保证原子性/);
+  const changes = diffDocuments(many, new Map(), new Map());
+  assert.throws(() => planBatches(changes, capabilities, true), /完整本地数据与待同步计划已保留/);
+  const expanded = { ...capabilities, limits: { ...capabilities.limits, commitOperations: 75 } };
+  assert.equal(planBatches(changes, expanded, true)[0].length, changes.length);
+});
+
+test('documented adapter preserves attachment IDs, buffers pages and constructs complete writes', async () => {
+  const guide = readFileSync(new URL('../../build/client-integration.md', import.meta.url), 'utf8');
+  const code = [...guide.matchAll(/```javascript\r?\n([\s\S]*?)```/g)][0][1];
+  const factory = new Function(code + '; return createWorkspaceClient;')();
+  const originalFetch = globalThis.fetch;
+  const received: { path: string; body: Record<string, unknown> | null }[] = [];
+  let mode = 'normal';
+  const attachmentId = '33333333-3333-4333-8333-333333333333';
+  const caps = { ...capabilities, features: [...capabilities.features, 'resources.text'], limits: { ...capabilities.limits, pageSize: 2, commitOperations: 60 } };
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    received.push({ path: url.pathname, body: typeof options?.body === 'string' ? JSON.parse(options.body) : null });
+    let data: unknown = { version: 1 };
+    if (url.pathname.endsWith('/login')) data = { accessToken: 'document-test', workspaceId: 'AbCdEf1234_-', resourceUserId: attachmentId, expiresAt: new Date(Date.now() + 3600000).toISOString() };
+    else if (url.pathname.endsWith('/capabilities')) data = caps;
+    else if (url.pathname.endsWith('/attachments')) data = { id: attachmentId, size: 0, sha256: 'BAD' };
+    else if (url.pathname.endsWith('/resources')) {
+      const page = Number(url.searchParams.get('page'));
+      if (page === 2) return new Response(JSON.stringify({ code: 503, msg: 'unavailable', data: null }), { status: 503 });
+      data = { items: [{ key: 'first' }, { key: 'second' }], pageNumber: page, pageSize: 2, total: 4 };
+    } else if (mode === 'network') throw new TypeError('Network interrupted');
+    else if (mode === 'server') return new Response(JSON.stringify({ code: 503, msg: 'unavailable', data: null }), { status: 503 });
+    return new Response(JSON.stringify({ code: 0, msg: 'ok', data }), { status: 200 });
+  };
+  try {
+    const client = factory('https://example.com/api/v1/workspaces/AbCdEf1234_-');
+    await client.login('user', 'test-password');
+    const resource = { key: 'note.json', title: 'Note', format: 'example.note', formatVersion: 1, kind: 'json', contentType: 'application/json', jsonContent: { value: 1 }, textContent: null, attachmentIds: [], metadata: {}, version: 999, summary: { private: true } };
+    await client.create(attachmentId, resource);
+    const sent = received.at(-1)!.body!;
+    assert(!Object.hasOwn(sent, 'textContent'));
+    assert(!Object.hasOwn(sent, 'version'));
+    assert(!Object.hasOwn(sent, 'summary'));
+    await client.create(attachmentId, { ...resource, kind: 'text', contentType: 'text/plain', jsonContent: null, textContent: 'Text' });
+    assert(!Object.hasOwn(received.at(-1)!.body!, 'jsonContent'));
+    assert.throws(() => client.create(attachmentId, { ...resource, textContent: 'not null' }));
+    await client.commit(Array.from({ length: 51 }, () => ({ action: 'put', id: crypto.randomUUID(), expectedVersion: null, resource })));
+    assert.equal((received.at(-1)!.body!.operations as unknown[]).length, 51);
+    const iterator = client.list();
+    await assert.rejects(iterator.next(), { status: 503 });
+    assert.equal(received.filter(request => request.path.endsWith('/resources')).length, 2);
+    await assert.rejects(client.upload(new Blob(['image']), 'check.png'), error => (error as { attachmentId?: string }).attachmentId === attachmentId);
+    mode = 'server';
+    await assert.rejects(client.create(attachmentId, resource), { resultState: 'unconfirmed' });
+    mode = 'network';
+    await assert.rejects(client.create(attachmentId, resource), { resultState: 'unconfirmed' });
+    await assert.rejects(prepareResource('wallpaper.json', { customWallpaperUrl: 'data:image/png;base64,eA==' }, async <T>(): Promise<T> => ({ id: attachmentId, size: 1, sha256: 'BAD', contentType: 'image/png' }) as T, capabilities, new Map()), error => error instanceof AttachmentIntegrityError && error.attachmentId === attachmentId);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('workspace resources HTTP contract, incremental saves, drafts, renewal and attachments', async context => {
@@ -82,6 +136,7 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
   let failAfter = false;
   let corruptUpload = false;
   let corruptDownload = false;
+  let omittedListingKey: string | null = null;
   let uploadCount = 0;
   let pauseCommit: Promise<void> | null = null;
   let onCommit: (() => void) | null = null;
@@ -129,10 +184,14 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       const pageSize = Number(url.searchParams.get('pageSize'));
       if (pageSize > serverCaps.limits.pageSize) return respond(400, null);
       const items = [...resources.values()].sort((first, second) => first.body.key.localeCompare(second.body.key)).map(item => ({ ...item.body, id: item.id, version: item.version }));
+      if (omittedListingKey) {
+        const index = items.findIndex(item => item.key === omittedListingKey);
+        if (index >= 0) items[index] = { ...items[index], key: 'other-app/omitted-placeholder.json', format: 'other.application' };
+      }
       return respond(200, { items: items.slice((page - 1) * pageSize, page * pageSize), pageNumber: page, pageSize, total: items.length });
     }
     if (url.pathname.includes('/resources/')) {
-      const resource = [...resources.values()].find(item => item.id === url.pathname.split('/').pop());
+      const resource = url.pathname.endsWith('/resources/by-key') ? resources.get(url.searchParams.get('key')!) : [...resources.values()].find(item => item.id === url.pathname.split('/').pop());
       if (!resource) return respond(404, null);
       response.setHeader('ETag', `"${resource.version}"`);
       return respond(200, { summary: { ...resource.body, id: resource.id, version: resource.version }, jsonContent: resource.body.jsonContent, attachmentIds: resource.body.attachmentIds });
@@ -187,6 +246,24 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       assert.equal(commits.length, 0);
       serverCaps.features = [...capabilities.features];
     });
+    await context.test('oversized first sync retains complete local data and plan without any commits', async () => {
+      serverCaps.limits.commitOperations = 5;
+      await login('alice', `${base}LmNoPq1234_-`, true);
+      const before = commits.length;
+      await cloud.saveCloud();
+      assert.equal(cloud.getCloudState().status, 'error');
+      assert.match(cloud.getCloudState().message, /当前尚不支持分批暂存后原子发布/);
+      assert.equal(commits.length, before);
+      assert.deepEqual(cloud.readValue('sangnav_links', []), DEFAULT_LINKS);
+      const storedDraft = [...local.entries()].find(([key]) => key.startsWith('sangnav_cloud_draft:') && key.includes('LmNoPq1234_-'));
+      assert(storedDraft);
+      const draft = JSON.parse(storedDraft[1]);
+      assert.equal(draft.snapshot.values.sangnav_links.length, DEFAULT_LINKS.length);
+      assert(draft.plan.length > serverCaps.limits.commitOperations);
+      assert.equal(draft.atomicPublish, true);
+      await cloud.logoutCloud();
+      serverCaps.limits.commitOperations = 50;
+    });
     await context.test('initializes independent resources and isolates one changed bookmark', async () => {
       cloud.writeValue(historyKey, ['local-only'], []);
       await login('alice', url, true);
@@ -234,6 +311,26 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       await cloud.saveCloud();
       assert(commits.at(-1)!.every(item => item.action === 'delete'));
       assert(!data().has(`analytics/visits/${day}.json`));
+    });
+    await context.test('stable totals and unique keys cannot publish an incomplete view or trigger deletion', async () => {
+      const before = cloud.readValue('sangnav_links', DEFAULT_LINKS);
+      const commitsBefore = commits.length;
+      const key = 'links/new-unlisted-link.json';
+      const originalOrder = data().get('links/order.json')!;
+      const savedContent = originalOrder.body.jsonContent;
+      const newLink = { ...DEFAULT_LINKS[0], id: 'new-unlisted-link' };
+      data().set(key, { id: crypto.randomUUID(), version: 1, body: { ...data().get(`links/${DEFAULT_LINKS[0].id}.json`)!.body, key, jsonContent: { value: newLink } } });
+      originalOrder.body.jsonContent = { value: [...(content('links/order.json') as string[]), newLink.id] };
+      omittedListingKey = key;
+      await cloud.reconcileCloud(true);
+      assert.equal(cloud.getCloudState().status, 'error');
+      assert.deepEqual(cloud.readValue('sangnav_links', []), before);
+      assert.equal(commits.length, commitsBefore);
+      omittedListingKey = null;
+      data().delete(key);
+      originalOrder.body.jsonContent = savedContent;
+      await cloud.reconcileCloud(true);
+      assert.equal(cloud.getCloudState().status, 'saved');
     });
     await context.test('preserves unknown formats and unrelated resource edits', async () => {
       data().set('other-app/document.json', { id: crypto.randomUUID(), version: 1, body: { ...data().get('settings.json')!.body, key: 'other-app/document.json', format: 'other.application', jsonContent: { unknown: true } } });
@@ -302,7 +399,7 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       failAfter = true;
       cloud.writeValue(historyKey, ['committed-response-lost'], []);
       await cloud.saveCloud();
-      assert.equal(cloud.getCloudState().status, 'error');
+      assert.equal(cloud.getCloudState().status, 'unconfirmed');
       const before = commits.length;
       await cloud.saveCloud();
       assert.equal(commits.length, before);
@@ -312,9 +409,18 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       failBefore = true;
       cloud.writeValue(historyKey, ['safe-retry'], []);
       await cloud.saveCloud();
+      assert.equal(cloud.getCloudState().status, 'unconfirmed');
+      await cloud.logoutCloud();
+      await login();
+      assert.equal(cloud.getCloudState().status, 'unconfirmed');
+      const pendingCommits = commits.length;
+      cloud.writeValue(historyKey, ['safe-retry-after-edit'], []);
+      assert.equal(cloud.getCloudState().status, 'unconfirmed');
+      await cloud.saveCloud();
+      assert.equal(commits.length, pendingCommits);
       await cloud.reconcileCloud(false);
       assert.equal(cloud.getCloudState().status, 'saved');
-      assert.deepEqual(content('search/history.json'), ['safe-retry']);
+      assert.deepEqual(content('search/history.json'), ['safe-retry-after-edit']);
     });
     await context.test('related category deletion and link changes are atomic', async () => {
       const originalCategories = cloud.readValue('sangnav_categories', DEFAULT_CATEGORIES);
@@ -354,7 +460,7 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       corruptUpload = false;
       failBefore = true;
       await cloud.reconcileCloud(false);
-      assert.equal(cloud.getCloudState().status, 'error');
+      assert.equal(cloud.getCloudState().status, 'unconfirmed');
       const before = uploadCount;
       await cloud.reconcileCloud(false);
       assert.equal(uploadCount, before);

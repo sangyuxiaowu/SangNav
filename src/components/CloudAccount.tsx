@@ -72,6 +72,12 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
     bg: 'bg-rose-500/10', 
     border: 'border-rose-500/20' 
   },
+  unconfirmed: {
+    label: '结果待确认',
+    color: 'text-amber-500',
+    bg: 'bg-amber-500/10',
+    border: 'border-amber-500/20'
+  },
   conflict: { 
     label: '检测到版本冲突', 
     color: 'text-amber-500', 
@@ -95,7 +101,7 @@ export function CloudStatus({ onOpen }: { onOpen: () => void }) {
   
   const isWorking = state.status === 'connecting' || state.status === 'saving';
   const isSaved = state.status === 'saved';
-  const hasAlert = ['error', 'conflict', 'expired'].includes(state.status);
+  const hasAlert = ['error', 'conflict', 'expired', 'unconfirmed'].includes(state.status);
 
   return (
     <div className="flex justify-end">

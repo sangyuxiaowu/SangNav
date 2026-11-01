@@ -10,6 +10,10 @@ type Summary = { id: string; key: string; version: number; format: string; forma
 type Resource = { summary: Summary; jsonContent: unknown; attachmentIds: string[] };
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export class AttachmentIntegrityError extends Error {
+  constructor(public attachmentId: string | undefined) { super('壁纸上传大小或 SHA-256 校验失败；已保留返回的附件 ID 供核查。'); }
+}
+
 export function validateCapabilities(input: Capabilities): Capabilities {
   const required = ['resources.json', 'resources.conditions', 'commits.atomic'];
   if (input?.apiVersion !== 'v1' || !Array.isArray(input.features) || required.some(feature => !input.features.includes(feature))) throw new Error('服务端缺少 JSON、条件写入或原子提交能力，不能连接。');
@@ -45,7 +49,7 @@ export async function prepareResource(key: string, content: unknown, client: Cli
       let upload = uploads.get(hash);
       if (!upload) {
         upload = await client<Upload>('/attachments?filename=wallpaper', { method: 'POST', headers: { 'Content-Type': contentType }, body: bytes });
-        if (!UUID.test(upload.id) || upload.sha256 !== hash || upload.size !== bytes.byteLength || upload.contentType !== contentType) throw new Error('壁纸上传大小或 SHA-256 校验失败。');
+        if (!upload || !UUID.test(upload.id) || upload.sha256 !== hash || upload.size !== bytes.byteLength || upload.contentType !== contentType) throw new AttachmentIntegrityError(upload?.id);
         uploads.set(hash, upload);
       }
       wire = { ...wallpaper, customWallpaperUrl: undefined, imageAttachment: upload };
@@ -58,15 +62,17 @@ export async function prepareResource(key: string, content: unknown, client: Cli
   return { key, title: key, format: RESOURCE_FORMAT, formatVersion: 1, kind: 'json', contentType: 'application/json', jsonContent, metadata: {}, attachmentIds };
 }
 
-export async function loadResources(client: Client, download: (id: string) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>) {
+export async function loadResources(client: Client, download: (id: string) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>, knownKeys: Iterable<string> = []) {
   const records = new Map<string, StoredResource>();
   const blocked = new Set<string>();
   const seen = new Set<string>();
   const summaries: Summary[] = [];
   const pageSize = Math.min(100, caps.limits.pageSize);
+  let total: number | null = null;
   for (let page = 1; ; page++) {
     const result = await client<{ items: Summary[]; pageNumber: number; pageSize: number; total: number }>(`/resources?page=${page}&pageSize=${pageSize}`);
-    if (!Array.isArray(result.items) || result.pageNumber !== page || result.pageSize !== pageSize || !Number.isSafeInteger(result.total) || result.total < 0 || result.items.length > pageSize) throw new Error('资源分页响应无效。');
+    if (!Array.isArray(result.items) || result.pageNumber !== page || result.pageSize !== pageSize || !Number.isSafeInteger(result.total) || result.total < 0 || result.items.length > pageSize || (total !== null && total !== result.total)) throw new Error('资源分页响应无效或读取期间发生变化。');
+    total = result.total;
     for (const summary of result.items) {
       if (!summary || typeof summary.key !== 'string' || seen.has(summary.key)) throw new Error('分页期间资源发生变化，请重新读取。');
       seen.add(summary.key);
@@ -76,6 +82,21 @@ export async function loadResources(client: Client, download: (id: string) => Pr
     }
     if (page * pageSize >= result.total) break;
     if (result.items.length === 0 || page >= 100000) throw new Error('资源分页不完整。');
+  }
+  if (seen.size !== total) throw new Error('资源分页数量不完整；保留当前本地视图。');
+  const missing = new Set(knownKeys);
+  for (const summary of summaries) missing.delete(summary.key);
+  for (const key of missing) {
+    if (blocked.has(key)) continue;
+    try {
+      const current = await client<Resource>(`/resources/by-key?key=${encodeURIComponent(key)}`);
+      if (current?.summary?.key !== key) throw new Error('按键读取的资源不匹配。');
+      const summary = current.summary;
+      if (summary.format !== RESOURCE_FORMAT || summary.formatVersion !== 1 || summary.kind !== 'json') blocked.add(key);
+      else summaries.push(summary);
+    } catch (error) {
+      if (!error || typeof error !== 'object' || !('status' in error) || error.status !== 404) throw error;
+    }
   }
   for (let offset = 0; offset < summaries.length; offset += 6) {
     await Promise.all(summaries.slice(offset, offset + 6).map(async summary => {
@@ -102,5 +123,14 @@ export async function loadResources(client: Client, download: (id: string) => Pr
       records.set(summary.key, { id: summary.id, version: summary.version, content });
     }));
   }
-  return { records, blocked };
+  const referenced = new Set<string>();
+  for (const [key, record] of records) {
+    if (!key.endsWith('/order.json') || !Array.isArray(record.content)) continue;
+    for (const id of record.content) {
+      if (typeof id !== 'string' || /[\\/%\x00-\x1f\x7f]/.test(id) || ['.', '..', 'order'].includes(id)) throw new Error('顺序清单 ID 无效。');
+      referenced.add(`${key.slice(0, -'order.json'.length)}${id}.json`);
+    }
+  }
+  if ([...referenced].some(key => !records.has(key))) throw new Error('分页遗漏顺序清单引用的资源；保留本地视图，需重新完整加载。');
+  return { records, blocked, consistency: 'unfenced' as const };
 }

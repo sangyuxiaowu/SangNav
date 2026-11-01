@@ -30,9 +30,12 @@ export function planBatches(changes: Change[], caps: Capabilities, atomicPublish
   const batches: Change[][] = [];
   let batch: Change[] = [];
   const max = caps.limits.commitOperations;
-  if (atomicPublish && changes.length > max) throw new Error(`本次完整同步需要 ${changes.length} 项，超过当前协议单次原子提交上限 ${max} 项。完整本地数据与待同步计划已保留；当前尚不支持分批暂存后原子发布，未提交任何分批写入。`);
+  const limitAdvice = caps.features.includes('commits.staged')
+    ? '当前连接已支持暂存提交，请改用暂存提交完成分批上传和一次原子发布。'
+    : '当前连接未声明 commits.staged 能力，请重新连接以刷新能力信息；未发送任何部分提交。';
+  if (atomicPublish && changes.length > max) throw new Error(`本次完整同步需要 ${changes.length} 项，超过普通单次原子提交上限 ${max} 项。完整本地数据与待同步计划已保留；${limitAdvice}`);
   for (const group of groups.values()) {
-    if (group.length > max) throw new Error(`关联变更需要 ${group.length} 项，超过当前协议上限 ${max} 项，不能保证原子性。完整本地数据与待同步计划已保留；需等待服务端提供适用能力，不要求删除数据规避限制。`);
+    if (group.length > max) throw new Error(`关联变更需要 ${group.length} 项，超过普通提交上限 ${max} 项，拆开普通提交不能保证原子性。完整本地数据与待同步计划已保留；${limitAdvice}`);
     if (batch.length + group.length > max) { batches.push(batch); batch = []; }
     batch.push(...group);
   }

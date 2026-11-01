@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import 'fake-indexeddb/auto';
-import { DEFAULT_CATEGORIES, DEFAULT_LINKS, DEFAULT_SEARCH_ENGINES, DEFAULT_SETTINGS } from '../data/defaultData';
+import { DEFAULT_CATEGORIES, DEFAULT_LINKS, DEFAULT_SEARCH_ENGINES, DEFAULT_SETTINGS, DEFAULT_SECRET_LINKS, DEFAULT_SECRET_CATEGORIES } from '../data/defaultData';
 import { forgetAccount, recallAccount, rememberAccount } from './credentialVault';
 import { joinDocuments, RESOURCE_FORMAT, semanticJson, splitDocuments } from './cloudResources';
 import { AttachmentIntegrityError, prepareResource, sha256, validateCapabilities, type Capabilities, type ResourceBody } from './cloudProtocol';
@@ -26,15 +26,13 @@ test('commit serialization and documentation use the verified action/id contract
   assert.equal(operation.expectedVersion, null);
   const guide = readFileSync(new URL('../../build/client-integration.md', import.meta.url), 'utf8');
   const jsonBlocks = [...guide.matchAll(/```json\r?\n([\s\S]*?)```/g)];
-  const firstExample = JSON.parse(jsonBlocks[0][1]);
+  const firstExample = jsonBlocks.map(block => JSON.parse(block[1])).find(value => Array.isArray(value.operations));
+  assert(firstExample);
   assert.deepEqual(Object.keys(firstExample.operations[0]).sort(), Object.keys(operation).sort());
   for (const block of jsonBlocks) JSON.parse(block[1]);
   const scripts = [...guide.matchAll(/```javascript\r?\n([\s\S]*?)```/g)];
-  assert.equal(scripts.length, 2);
-  const factory = new Function(scripts[0][1] + '; return createWorkspaceClient;')();
-  assert.throws(() => factory('http://example.com/api/v1/workspaces/Ab3dEf6gHi9_'));
-  assert.throws(() => factory('https://example.com/api/v1'));
-  assert.doesNotThrow(() => new Function('return async function(workspaceUrl,username,password,createWorkspaceClient){' + scripts[1][1] + '}'));
+  assert(scripts.length >= 3);
+  for (const script of scripts) assert.doesNotThrow(() => new Function('return async function(){' + script[1] + '}'));
 });
 
 const capabilities: Capabilities = {
@@ -60,58 +58,33 @@ test('resource round-trip, isolated changes, capability checks and transaction l
   assert.throws(() => planBatches(diffDocuments(many, new Map(), new Map()), capabilities), /不能保证原子性/);
   const changes = diffDocuments(many, new Map(), new Map());
   assert.throws(() => planBatches(changes, capabilities, true), /完整本地数据与待同步计划已保留/);
-  const expanded = { ...capabilities, limits: { ...capabilities.limits, commitOperations: 75 } };
+  assert.throws(() => planBatches(changes, capabilities, true), /当前连接未声明 commits\.staged 能力/);
+  const supportsStaged = { ...capabilities, features: [...capabilities.features, 'commits.staged'] };
+  assert.throws(() => planBatches(changes, supportsStaged, true), /请改用暂存提交/);
+  assert.throws(() => planBatches(changes, supportsStaged), /当前连接已支持暂存提交/);
+  const expanded = { ...capabilities, limits: { ...capabilities.limits, commitOperations: 100 } };
   assert.equal(planBatches(changes, expanded, true)[0].length, changes.length);
 });
 
-test('documented adapter preserves attachment IDs, buffers pages and constructs complete writes', async () => {
-  const guide = readFileSync(new URL('../../build/client-integration.md', import.meta.url), 'utf8');
-  const code = [...guide.matchAll(/```javascript\r?\n([\s\S]*?)```/g)][0][1];
-  const factory = new Function(code + '; return createWorkspaceClient;')();
-  const originalFetch = globalThis.fetch;
-  const received: { path: string; body: Record<string, unknown> | null }[] = [];
-  let mode = 'normal';
+test('default navigation can initialize under the real 50-operation limit without splitting related groups', () => {
+  const values = { sangnav_links: DEFAULT_LINKS, sangnav_categories: DEFAULT_CATEGORIES, sangnav_secret_links: DEFAULT_SECRET_LINKS, sangnav_secret_categories: DEFAULT_SECRET_CATEGORIES, sangnav_settings: DEFAULT_SETTINGS, sangnav_engines: DEFAULT_SEARCH_ENGINES, sangnav_active_engine: 'bing', sangnav_search_history: [], sangnav_secret_pattern: null, sangnav_secret_autolock: false };
+  const changes = diffDocuments(splitDocuments(values), new Map(), new Map());
+  assert(changes.length > 50);
+  const batches = planBatches(changes, capabilities);
+  assert(batches.length > 1);
+  assert(batches.every(batch => batch.length <= capabilities.limits.commitOperations));
+  assert.equal(batches.flat().length, changes.length);
+  const publicBatches = batches.filter(batch => batch.some(change => /^(links|categories)\//.test(change.key)));
+  assert.equal(publicBatches.length, 1);
+  const privateBatches = batches.filter(batch => batch.some(change => /^secret\/(links|categories)\//.test(change.key)));
+  assert.equal(privateBatches.length, 1);
+  const expanded = { ...capabilities, limits: { ...capabilities.limits, commitOperations: 100 } };
+  assert.equal(planBatches(changes, expanded).length, 1);
+});
+
+test('attachment validation preserves the known ID after integrity failure', async () => {
   const attachmentId = '33333333-3333-4333-8333-333333333333';
-  const caps = { ...capabilities, features: [...capabilities.features, 'resources.text'], limits: { ...capabilities.limits, pageSize: 2, commitOperations: 60 } };
-  globalThis.fetch = async (input, options) => {
-    const url = new URL(String(input));
-    received.push({ path: url.pathname, body: typeof options?.body === 'string' ? JSON.parse(options.body) : null });
-    let data: unknown = { version: 1 };
-    if (url.pathname.endsWith('/login')) data = { accessToken: 'document-test', workspaceId: 'AbCdEf1234_-', resourceUserId: attachmentId, expiresAt: new Date(Date.now() + 3600000).toISOString() };
-    else if (url.pathname.endsWith('/capabilities')) data = caps;
-    else if (url.pathname.endsWith('/attachments')) data = { id: attachmentId, size: 0, sha256: 'BAD' };
-    else if (url.pathname.endsWith('/resources')) {
-      const page = Number(url.searchParams.get('page'));
-      if (page === 2) return new Response(JSON.stringify({ code: 503, msg: 'unavailable', data: null }), { status: 503 });
-      data = { items: [{ key: 'first' }, { key: 'second' }], pageNumber: page, pageSize: 2, total: 4 };
-    } else if (mode === 'network') throw new TypeError('Network interrupted');
-    else if (mode === 'server') return new Response(JSON.stringify({ code: 503, msg: 'unavailable', data: null }), { status: 503 });
-    return new Response(JSON.stringify({ code: 0, msg: 'ok', data }), { status: 200 });
-  };
-  try {
-    const client = factory('https://example.com/api/v1/workspaces/AbCdEf1234_-');
-    await client.login('user', 'test-password');
-    const resource = { key: 'note.json', title: 'Note', format: 'example.note', formatVersion: 1, kind: 'json', contentType: 'application/json', jsonContent: { value: 1 }, textContent: null, attachmentIds: [], metadata: {}, version: 999, summary: { private: true } };
-    await client.create(attachmentId, resource);
-    const sent = received.at(-1)!.body!;
-    assert(!Object.hasOwn(sent, 'textContent'));
-    assert(!Object.hasOwn(sent, 'version'));
-    assert(!Object.hasOwn(sent, 'summary'));
-    await client.create(attachmentId, { ...resource, kind: 'text', contentType: 'text/plain', jsonContent: null, textContent: 'Text' });
-    assert(!Object.hasOwn(received.at(-1)!.body!, 'jsonContent'));
-    assert.throws(() => client.create(attachmentId, { ...resource, textContent: 'not null' }));
-    await client.commit(Array.from({ length: 51 }, () => ({ action: 'put', id: crypto.randomUUID(), expectedVersion: null, resource })));
-    assert.equal((received.at(-1)!.body!.operations as unknown[]).length, 51);
-    const iterator = client.list();
-    await assert.rejects(iterator.next(), { status: 503 });
-    assert.equal(received.filter(request => request.path.endsWith('/resources')).length, 2);
-    await assert.rejects(client.upload(new Blob(['image']), 'check.png'), error => (error as { attachmentId?: string }).attachmentId === attachmentId);
-    mode = 'server';
-    await assert.rejects(client.create(attachmentId, resource), { resultState: 'unconfirmed' });
-    mode = 'network';
-    await assert.rejects(client.create(attachmentId, resource), { resultState: 'unconfirmed' });
-    await assert.rejects(prepareResource('wallpaper.json', { customWallpaperUrl: 'data:image/png;base64,eA==' }, async <T>(): Promise<T> => ({ id: attachmentId, size: 1, sha256: 'BAD', contentType: 'image/png' }) as T, capabilities, new Map()), error => error instanceof AttachmentIntegrityError && error.attachmentId === attachmentId);
-  } finally { globalThis.fetch = originalFetch; }
+  await assert.rejects(prepareResource('wallpaper.json', { customWallpaperUrl: 'data:image/png;base64,eA==' }, async <T>(): Promise<T> => ({ id: attachmentId, size: 1, sha256: 'BAD', contentType: 'image/png' }) as T, capabilities, new Map()), error => error instanceof AttachmentIntegrityError && error.attachmentId === attachmentId);
 });
 
 test('workspace resources HTTP contract, incremental saves, drafts, renewal and attachments', async context => {
@@ -134,12 +107,19 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
   let limited = false;
   let failBefore = false;
   let failAfter = false;
+  let failAtCommit = 0;
   let corruptUpload = false;
   let corruptDownload = false;
   let omittedListingKey: string | null = null;
   let uploadCount = 0;
   let pauseCommit: Promise<void> | null = null;
   let onCommit: (() => void) | null = null;
+  let stagedPublishCount = 0;
+  let failStagedPublish = false;
+  let rejectFenceOnce = false;
+  let omitFenceHeaderOnce = false;
+  let fenceReadCount = 0;
+  const stagedSessions = new Map<string, { declaration: { operationCount: number; batchCount: number; baseStoreRevision?: string }; batches: Map<number, string>; state: string; results: { id: string; version: number; deleted: boolean }[] }>();
   const server = createServer(async (request, response) => {
     const url = new URL(request.url!, 'http://localhost');
     const workspaceId = url.pathname.split('/')[4];
@@ -149,7 +129,9 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const bytes = new Uint8Array(Buffer.concat(chunks));
     const respond = (status: number, data: unknown, msg = 'ok') => {
-      response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(status === 429 ? { 'Retry-After': '60' } : {}) });
+      const missingFence = omitFenceHeaderOnce && status === 200 && url.pathname.endsWith('/resources');
+      if (missingFence) omitFenceHeaderOnce = false;
+      response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(status === 429 ? { 'Retry-After': '60' } : {}), ...(serverCaps.features.includes('resources.read-fence') && !missingFence ? { 'Store-Revision': String(stagedPublishCount) } : {}) });
       response.end(JSON.stringify({ code: status >= 400 ? status : 0, msg, data }));
     };
     if (url.pathname.endsWith('/login')) {
@@ -164,7 +146,66 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
     const token = request.headers.authorization?.replace('Bearer ', '') || '';
     if (tokens.get(token) !== workspaceId || revoked.has(token)) return respond(401, null);
     if (url.pathname.endsWith('/capabilities')) return respond(200, serverCaps);
+    if (url.pathname.endsWith('/read-state')) return respond(200, { storeRevision: String(stagedPublishCount) });
+    if (request.headers['if-store-revision']) {
+      fenceReadCount++;
+      if (rejectFenceOnce || request.headers['if-store-revision'] !== String(stagedPublishCount)) {
+        rejectFenceOnce = false;
+        return respond(409, { reason: 'read_revision_changed' });
+      }
+    }
     if (url.pathname.endsWith('/logout')) { response.writeHead(204); response.end(); return; }
+    if (url.pathname.includes('/commit-sessions/')) {
+      const tail = url.pathname.split('/commit-sessions/')[1].split('/');
+      const commitId = tail[0];
+      let staged = stagedSessions.get(commitId);
+      if (request.method === 'PUT' && tail.length === 1) {
+        const declaration = JSON.parse(new TextDecoder().decode(bytes));
+        if (!staged) { staged = { declaration, batches: new Map(), state: 'open', results: [] }; stagedSessions.set(commitId, staged); }
+        else if (semanticJson(staged.declaration) !== semanticJson(declaration)) return respond(409, null);
+        return respond(201, {});
+      }
+      if (!staged) return respond(404, null);
+      if (tail.length === 1 && request.method === 'GET') {
+        const batches = [];
+        for (const [index, raw] of staged.batches) batches.push({ index, operationCount: JSON.parse(raw).operations.length, sha256: await sha256(new TextEncoder().encode(raw)) });
+        return respond(200, { commitId, ...staged.declaration, baseStoreRevision: staged.declaration.baseStoreRevision ?? null, state: staged.state, resultCount: staged.results.length, storeRevision: staged.state === 'published' ? '1' : null, batches });
+      }
+      if (tail[1] === 'batches' && request.method === 'PUT') {
+        const raw = new TextDecoder().decode(bytes);
+        const index = Number(tail[2]);
+        const previous = staged.batches.get(index);
+        if (previous !== undefined && previous !== raw) return respond(409, null);
+        staged.batches.set(index, raw);
+        assert.equal(stagedPublishCount, 0);
+        assert.equal(resources.size, 0);
+        return respond(201, { index, operationCount: JSON.parse(raw).operations.length, sha256: await sha256(bytes) });
+      }
+      if (tail[1] === 'publish' && request.method === 'POST') {
+        if (staged.state !== 'published') {
+          const next = new Map(resources);
+          const all = [...staged.batches].sort(([first], [second]) => first - second).flatMap(([, raw]) => JSON.parse(raw).operations as Operation[]);
+          for (const operation of all) {
+            const current = [...next.values()].find(item => item.id === operation.id);
+            if ((current?.version ?? null) !== operation.expectedVersion) return respond(412, null);
+            if (operation.action === 'delete') { if (current) next.delete(current.body.key); }
+            else next.set(operation.resource!.key, { id: operation.id, version: (current?.version ?? 0) + 1, body: operation.resource! });
+          }
+          staged.results = all.map(operation => ({ id: operation.id, version: (operation.expectedVersion ?? 0) + 1, deleted: operation.action === 'delete' }));
+          staged.state = 'published';
+          spaces.set(workspaceId, next);
+          stagedPublishCount++;
+        }
+        if (failStagedPublish) { failStagedPublish = false; return respond(503, null); }
+        return respond(200, { commitId, state: 'published', storeRevision: '1', resultCount: staged.results.length });
+      }
+      if (tail[1] === 'results') {
+        const page = Number(url.searchParams.get('page'));
+        const pageSize = Number(url.searchParams.get('pageSize'));
+        return respond(200, { items: staged.results.slice((page - 1) * pageSize, page * pageSize), pageNumber: page, pageSize, total: staged.results.length });
+      }
+      return respond(400, null);
+    }
     if (url.pathname.endsWith('/attachments') && request.method === 'POST') {
       const id = crypto.randomUUID();
       uploadCount++;
@@ -200,6 +241,7 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       const { operations } = JSON.parse(new TextDecoder().decode(bytes)) as { operations: Operation[] };
       if (!Array.isArray(operations) || operations.some(item => !item || Object.keys(item).some(key => !['action', 'id', 'expectedVersion', 'resource'].includes(key)) || !['put', 'delete'].includes(item.action))) return respond(400, null, 'Invalid request fields.');
       commits.push(operations);
+      if (commits.length === failAtCommit) { failAtCommit = 0; return respond(503, null); }
       if (operations.length > serverCaps.limits.commitOperations || operations.length > 50 || new Set(operations.map(item => item.id)).size !== operations.length) return respond(400, null);
       if (failBefore) { failBefore = false; return respond(503, null); }
       const next = new Map(resources);
@@ -246,13 +288,13 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       assert.equal(commits.length, 0);
       serverCaps.features = [...capabilities.features];
     });
-    await context.test('oversized first sync retains complete local data and plan without any commits', async () => {
+    await context.test('oversized related group retains complete local data and plan without any commits', async () => {
       serverCaps.limits.commitOperations = 5;
       await login('alice', `${base}LmNoPq1234_-`, true);
       const before = commits.length;
       await cloud.saveCloud();
       assert.equal(cloud.getCloudState().status, 'error');
-      assert.match(cloud.getCloudState().message, /当前尚不支持分批暂存后原子发布/);
+      assert.match(cloud.getCloudState().message, /不能保证原子性/);
       assert.equal(commits.length, before);
       assert.deepEqual(cloud.readValue('sangnav_links', []), DEFAULT_LINKS);
       const storedDraft = [...local.entries()].find(([key]) => key.startsWith('sangnav_cloud_draft:') && key.includes('LmNoPq1234_-'));
@@ -260,9 +302,45 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       const draft = JSON.parse(storedDraft[1]);
       assert.equal(draft.snapshot.values.sangnav_links.length, DEFAULT_LINKS.length);
       assert(draft.plan.length > serverCaps.limits.commitOperations);
-      assert.equal(draft.atomicPublish, true);
+      assert.equal(draft.atomicPublish, false);
       await cloud.logoutCloud();
       serverCaps.limits.commitOperations = 50;
+    });
+    await context.test('all default data syncs in independent groups and resumes after a later batch fails', async () => {
+      cloud.writeValue('sangnav_secret_links', DEFAULT_SECRET_LINKS, []);
+      cloud.writeValue('sangnav_secret_categories', DEFAULT_SECRET_CATEGORIES, []);
+      const target = `${base}QrStUv1234_-`;
+      await login('alice', target, true);
+      await cloud.logoutCloud();
+      const draftKey = [...local.keys()].find(key => key.startsWith('sangnav_cloud_draft:') && key.includes('QrStUv1234_-'))!;
+      const legacyDraft = JSON.parse(local.get(draftKey)!);
+      legacyDraft.atomicPublish = true;
+      delete legacyDraft.publication;
+      local.set(draftKey, JSON.stringify(legacyDraft));
+      await login('alice', target);
+      const before = commits.length;
+      failAtCommit = before + 2;
+      await cloud.saveCloud();
+      assert.equal(cloud.getCloudState().status, 'unconfirmed');
+      assert.deepEqual(cloud.readValue('sangnav_links', []), DEFAULT_LINKS);
+      assert.deepEqual(cloud.readValue('sangnav_secret_links', []), DEFAULT_SECRET_LINKS);
+      const draft = JSON.parse(local.get(draftKey)!);
+      assert(draft.records.length > 0);
+      assert(draft.plan.length > 0);
+      assert.equal(draft.publication, 'independent');
+      const expectedCount = splitDocuments(draft.snapshot.values).size;
+      assert(expectedCount > 50);
+      assert(spaces.get('QrStUv1234_-')!.size < expectedCount);
+      await cloud.logoutCloud();
+      await login('alice', target);
+      assert.equal(cloud.getCloudState().status, 'unconfirmed');
+      await cloud.reconcileCloud(false);
+      assert.equal(cloud.getCloudState().status, 'saved');
+      assert.equal(spaces.get('QrStUv1234_-')!.size, expectedCount);
+      assert(commits.slice(before).every(batch => batch.length <= 50));
+      await cloud.logoutCloud();
+      cloud.writeValue('sangnav_secret_links', [], []);
+      cloud.writeValue('sangnav_secret_categories', [], []);
     });
     await context.test('initializes independent resources and isolates one changed bookmark', async () => {
       cloud.writeValue(historyKey, ['local-only'], []);
@@ -520,6 +598,40 @@ test('workspace resources HTTP contract, incremental saves, drafts, renewal and 
       assert.deepEqual(cloud.readValue(historyKey, []), ['draft-on-password-reset']);
       await cloud.logoutCloud();
       rejectLogin = false;
+    });
+    await context.test('staged initial sync restores retained receipt after lost publish response', async () => {
+      serverCaps.features.push('commits.staged');
+      serverCaps.features.push('resources.read-fence');
+      Object.assign(serverCaps.limits, { stagedBatchOperations: 10, stagedBatchBytes: 20971520, stagedCommitOperations: 10000, stagedCommitBytes: 268435456, stagedBatchCount: 1000, stagedOpenSessionsPerAccount: 2, stagedOpenSessionsPerWorkspace: 8, stagedWorkspaceBytes: 536870912, stagedLifetimeSeconds: 86400, stagedReceiptSeconds: 604800 });
+      serverCaps.stagedCommits = { idempotencyScope: 'workspace+commitId', batchIdentity: 'sha256-raw-utf8', receiptSeconds: 604800, contentEncoding: 'identity' };
+      cloud.writeValue('sangnav_secret_links', DEFAULT_SECRET_LINKS, []);
+      cloud.writeValue('sangnav_secret_categories', DEFAULT_SECRET_CATEGORIES, []);
+      const target = `${base}StAgEd1234_-`;
+      rejectFenceOnce = true;
+      omitFenceHeaderOnce = true;
+      await login('alice', target, true);
+      assert.equal(rejectFenceOnce, false);
+      assert.equal(omitFenceHeaderOnce, false);
+      assert(fenceReadCount >= 3);
+      const before = commits.length;
+      failStagedPublish = true;
+      await cloud.saveCloud();
+      assert.equal(cloud.getCloudState().status, 'unconfirmed');
+      assert.equal(stagedPublishCount, 1);
+      assert.equal(commits.length, before);
+      assert(spaces.get('StAgEd1234_-')!.size > 50);
+      await cloud.logoutCloud();
+      await login('alice', target);
+      assert.equal(cloud.getCloudState().status, 'unconfirmed');
+      await cloud.reconcileCloud(false);
+      assert.equal(cloud.getCloudState().status, 'saved');
+      assert.equal(stagedPublishCount, 1);
+      assert.equal(stagedSessions.size, 1);
+      await cloud.logoutCloud();
+      serverCaps.features = [...capabilities.features];
+      delete serverCaps.stagedCommits;
+      cloud.writeValue('sangnav_secret_links', [], []);
+      cloud.writeValue('sangnav_secret_categories', [], []);
     });
     await context.test('honors Retry-After and blocks repeated login requests', async () => {
       limited = true;

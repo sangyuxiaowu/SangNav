@@ -1,13 +1,14 @@
 import { validateCloudValues } from './cloudSchema';
 import { forgetAccount, recallAccount, rememberAccount } from './credentialVault';
 import { isManagedKey, joinDocuments, semanticJson, splitDocuments } from './cloudResources';
-import { AttachmentIntegrityError, loadResources, UUID, validateCapabilities, type Capabilities, type Client, type StoredResource, type Upload } from './cloudProtocol';
+import { AttachmentIntegrityError, loadResources, ReadRevisionChanged, UUID, validateCapabilities, type Capabilities, type Client, type StoredResource, type Upload } from './cloudProtocol';
 import { CommitResultUnconfirmed, diffDocuments, planBatches, saveBatch, type Change } from './cloudSync';
+import { buildStagedPlan, cancelStagedPlan, deleteStagedDraft, readStagedDraft, resumeStagedPlan, saveStagedDraft, StagedSessionUnavailable, validateStagedPlan, type StagedPlan } from './cloudStaged';
 
 type Values = Record<string, unknown>;
 type Snapshot = { schemaVersion: 1; values: Values };
 type Session = { accessToken: string; expiresAt: string; resourceUserId: string; workspaceId: string };
-type Draft = { schemaVersion: 2; snapshot: Snapshot; records: [string, StoredResource][]; identities: [string, string][]; uploads: [string, Upload][]; atomicPublish?: boolean; unconfirmed?: boolean; plan?: Change[]; unverifiedAttachmentIds?: string[] };
+type Draft = { schemaVersion: 2; snapshot: Snapshot; records: [string, StoredResource][]; identities: [string, string][]; uploads: [string, Upload][]; atomicPublish?: boolean; publication?: 'restore' | 'independent'; unconfirmed?: boolean; plan?: Change[]; unverifiedAttachmentIds?: string[]; stagedPlan?: StagedPlan; durableStaged?: boolean; storeRevision?: string };
 export type CloudState = {
   status: 'local' | 'connecting' | 'saved' | 'pending' | 'saving' | 'error' | 'conflict' | 'expired' | 'unconfirmed';
   username: string;
@@ -32,6 +33,8 @@ let generation = 0;
 let dirty = false;
 let busy = false;
 let atomicPublish = false;
+let stagedPlan: StagedPlan | undefined;
+let storeRevision: string | undefined;
 let unverifiedAttachmentIds: string[] = [];
 let draftPersistenceFailed = false;
 let renewalTimer: ReturnType<typeof setTimeout> | undefined;
@@ -96,7 +99,7 @@ async function authenticatedFetch(url: string, token: string | null, options: Re
 }
 
 export class CloudError extends Error {
-  constructor(public status: number, message: string, public retryAfterMs = 0) { super(message); }
+  constructor(public status: number, message: string, public retryAfterMs = 0, public details?: unknown) { super(message); }
 }
 
 function emit() { for (const listener of listeners) listener(); }
@@ -154,10 +157,20 @@ async function loadCurrent() {
 }
 function persistDraft() {
   try {
-    const plan = changes();
-    localStorage.setItem(draftKey, JSON.stringify({ schemaVersion: 2, snapshot: snapshot(), records: [...records], identities: [...identities], uploads: [...uploads], plan, atomicPublish, unconfirmed: state.status === 'unconfirmed', unverifiedAttachmentIds } satisfies Draft));
+    const draft = draftSnapshot();
+    if (stagedPlan) void saveStagedDraft(draftKey, draft).catch(() => { draftPersistenceFailed = true; });
+    localStorage.setItem(draftKey, JSON.stringify({ ...draft, stagedPlan: undefined, durableStaged: !!stagedPlan }));
     draftPersistenceFailed = false;
   } catch { draftPersistenceFailed = true; }
+}
+function draftSnapshot(): Draft {
+  const plan = changes();
+  return { schemaVersion: 2, snapshot: snapshot(), records: [...records], identities: [...identities], uploads: [...uploads], plan, atomicPublish, publication: atomicPublish ? 'restore' : 'independent', unconfirmed: state.status === 'unconfirmed', unverifiedAttachmentIds, stagedPlan, storeRevision };
+}
+async function checkpointStaged() {
+  if (!stagedPlan) throw new Error('暂存计划缺失，未发送请求。');
+  await saveStagedDraft(draftKey, draftSnapshot());
+  draftPersistenceFailed = false;
 }
 function scheduleSave() {
   clearTimeout(timer);
@@ -186,8 +199,10 @@ async function request<T>(url: string, token: string | null, options: RequestIni
     const retryAfterMs = response.status === 429 ? Math.max(1000, retry && /^\d+$/.test(retry) ? Number(retry) * 1000 : retry && Number.isFinite(Date.parse(retry)) ? Date.parse(retry) - Date.now() : 60000) : 0;
     if (response.status === 429 && url.endsWith('/login')) loginRetryUntil.set(url, Date.now() + retryAfterMs);
     const message = response.status === 429 ? `登录过于频繁，请在 ${Math.ceil(retryAfterMs / 1000)} 秒后重试。` : envelope?.msg || `请求失败（HTTP ${response.status}）`;
-    throw new CloudError(response.status, message, retryAfterMs);
+    throw new CloudError(response.status, message, retryAfterMs, envelope?.data);
   }
+  const revision = new Headers(options.headers).get('If-Store-Revision');
+  if (revision !== null && response.headers.get('Store-Revision') !== revision) throw new ReadRevisionChanged();
   return envelope.data as T;
 }
 
@@ -227,15 +242,20 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
     blocked = remote.blocked;
     uploads = loadedUploads;
     identities = new Map();
+    stagedPlan = undefined;
+    storeRevision = remote.storeRevision;
     draftKey = `sangnav_cloud_draft:v2:${url}:${authenticated.resourceUserId}`;
     const hasData = records.size > 0;
-    atomicPublish = !hasData;
+    atomicPublish = false;
     unverifiedAttachmentIds = [];
     const initial = { ...defaults, ...(hasData ? {} : importLocal ? { ...local, ...analytics } : {}) };
     values = validateSnapshot({ schemaVersion: 1, values: joinDocuments(new Map([...records].map(([key, record]) => [key, record.content])), initial) }).values;
     dirty = changes().length > 0;
     let recovered: Draft | null = null;
     try { recovered = JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch { /* Ignore malformed local drafts. */ }
+    const durable = await readStagedDraft<Draft>(draftKey);
+    if (durable) recovered = durable;
+    else if (recovered?.durableStaged) throw new Error('暂存计划的持久副本缺失，已停止自动提交；请保留草稿并人工核对。');
     updateState({ workspaceUrl: url, username: username.trim(), status: dirty ? 'pending' : 'saved', message: '' });
     if (recovered) {
       const savedDraft = validateSnapshot(recovered.snapshot);
@@ -243,7 +263,8 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
       const previous = new Map(recovered.records);
       if ([...previous].some(([key, record]) => !isManagedKey(key) || !record || !UUID.test(record.id) || !Number.isSafeInteger(record.version) || record.version < 1)) throw new Error('本机草稿版本无效。');
       identities = new Map(recovered.identities);
-      atomicPublish = recovered.atomicPublish ?? atomicPublish;
+      stagedPlan = recovered.stagedPlan ? validateStagedPlan(recovered.stagedPlan) : undefined;
+      atomicPublish = recovered.publication === 'restore' || (recovered.publication === undefined && !!recovered.atomicPublish && recovered.records.length > 0);
       unverifiedAttachmentIds = recovered.unverifiedAttachmentIds || [];
       for (const [hash, upload] of recovered.uploads) uploads.set(hash, upload);
       const edits = diffDocuments(splitDocuments(savedDraft.values), previous, identities);
@@ -258,8 +279,8 @@ export async function loginCloud(workspaceUrl: string, username: string, passwor
         if (base) records.set(edit.key, base); else records.delete(edit.key);
       }
       values = validateSnapshot({ schemaVersion: 1, values: joinDocuments(merged, defaults) }).values;
-      dirty = changes().length > 0;
-      updateState({ status: recovered.unconfirmed && dirty ? 'unconfirmed' : conflict ? 'conflict' : dirty ? 'pending' : 'saved', message: recovered.unconfirmed && dirty ? '已恢复结果待确认的提交计划，请先核实云端状态。' : dirty ? '已恢复此空间中当前身份未保存的本机草稿。' : '' });
+      dirty = !!stagedPlan || changes().length > 0;
+      updateState({ status: stagedPlan || recovered.unconfirmed && dirty ? 'unconfirmed' : conflict ? 'conflict' : dirty ? 'pending' : 'saved', message: stagedPlan ? '已恢复暂存提交原始计划，请核实并续传同一提交。' : recovered.unconfirmed && dirty ? '已恢复结果待确认的提交计划，请先核实云端状态。' : dirty ? '已恢复此空间中当前身份未保存的本机草稿。' : '' });
     }
     if (dirty) { persistDraft(); if (!['conflict', 'unconfirmed'].includes(state.status)) scheduleSave(); }
     try { await rememberAccount({ workspaceUrl: url, username: username.trim(), password, session: authenticated }); }
@@ -316,7 +337,32 @@ export async function saveCloud() {
     const pending = changes();
     if (pending.some(change => blocked.has(change.key))) throw new Error('逻辑键被未知格式占用，已保留该资源，请先人工处理。');
     persistDraft();
-    const batches = planBatches(pending, capabilities, atomicPublish);
+    const shouldStage = !!stagedPlan || capabilities.features.includes('commits.staged') && pending.length > 0 && (atomicPublish || !records.has('app.json') || pending.length > capabilities.limits.commitOperations);
+    if (shouldStage) {
+      if (!stagedPlan) {
+        if (capabilities.features.includes('resources.read-fence')) {
+          const current = await loadCurrent();
+          if (current.records.size !== records.size || [...records].some(([key, record]) => {
+            const latest = current.records.get(key);
+            return !latest || latest.id !== record.id || latest.version !== record.version;
+          })) throw new CloudError(412, '暂存前核对发现远端变化，已保留原始草稿版本。');
+          storeRevision = current.storeRevision;
+        }
+        stagedPlan = await buildStagedPlan(pending, client, capabilities, uploads, persistDraft, storeRevision);
+      }
+      await checkpointStaged();
+      const currentPlan = stagedPlan;
+      const receipt = await resumeStagedPlan(currentPlan, client, capabilities, checkpointStaged);
+      if (attempt !== generation) return;
+      for (const [index, change] of currentPlan.changes.entries()) {
+        if (change.deleted) { records.delete(change.key); identities.delete(change.key); }
+        else records.set(change.key, { id: change.id, version: receipt.items[index].version, content: change.content });
+      }
+      storeRevision = receipt.storeRevision;
+      stagedPlan = undefined;
+      await deleteStagedDraft(draftKey);
+    }
+    const batches = shouldStage || changes().length === 0 ? [] : planBatches(changes(), capabilities, atomicPublish);
     for (const batch of batches) {
       const result = await saveBatch(batch, client, capabilities, uploads, persistDraft);
       if (attempt !== generation) return;
@@ -334,8 +380,9 @@ export async function saveCloud() {
     if (attempt !== generation) return;
     const status = error instanceof CloudError ? error.status : 0;
     if (error instanceof AttachmentIntegrityError && error.attachmentId) unverifiedAttachmentIds.push(error.attachmentId);
-    updateState({ status: error instanceof CommitResultUnconfirmed ? 'unconfirmed' : status === 401 ? 'expired' : [409, 412].includes(status) ? 'conflict' : 'error', message: error instanceof AttachmentIntegrityError ? `${error.message} 附件 ID：${error.attachmentId || '未返回'}` : status === 401 ? '登录已失效，本机草稿已保留，请重新登录。' : [409, 412].includes(status) ? '云端版本已改变，本机修改已保留。' : error instanceof Error ? error.message : '保存失败，本机草稿已保留。' });
+    updateState({ status: error instanceof CommitResultUnconfirmed || error instanceof StagedSessionUnavailable ? 'unconfirmed' : status === 401 ? 'expired' : [409, 412].includes(status) ? 'conflict' : 'error', message: error instanceof AttachmentIntegrityError ? `${error.message} 附件 ID：${error.attachmentId || '未返回'}` : status === 401 ? '登录已失效，本机草稿已保留，请重新登录。' : [409, 412].includes(status) ? '云端版本已改变，本机修改已保留。' : error instanceof Error ? error.message : '保存失败，本机草稿已保留。' });
     persistDraft();
+    if (stagedPlan) await checkpointStaged().catch(() => { draftPersistenceFailed = true; });
     if (status === 429) scheduleRenewal(Math.max(60000, error instanceof CloudError ? error.retryAfterMs : 0));
   } finally {
     busy = false;
@@ -345,17 +392,28 @@ export async function saveCloud() {
 
 export async function reconcileCloud(useRemote: boolean) {
   if (!session || busy) return;
+  if (stagedPlan && !useRemote) {
+    updateState({ status: 'pending', message: '正在查询暂存会话并续传原始批次。' });
+    await saveCloud();
+    return;
+  }
   busy = true;
   const wasUnconfirmed = state.status === 'unconfirmed';
   try {
+    if (stagedPlan && useRemote) {
+      await cancelStagedPlan(stagedPlan, client);
+    }
     const remote = await loadCurrent();
     blocked = remote.blocked;
     if (useRemote) {
       values = validateSnapshot({ schemaVersion: 1, values: joinDocuments(new Map([...remote.records].map(([key, record]) => [key, record.content])), defaults) }).values;
       records = remote.records;
+      stagedPlan = undefined;
+      await deleteStagedDraft(draftKey);
       identities.clear();
       dirty = false;
       atomicPublish = false;
+      storeRevision = remote.storeRevision;
       localStorage.removeItem(draftKey);
       updateState({ status: 'saved', message: '' });
     } else {
@@ -373,6 +431,7 @@ export async function reconcileCloud(useRemote: boolean) {
       }
       values = validateSnapshot({ schemaVersion: 1, values: joinDocuments(merged, defaults) }).values;
       records = remote.records;
+      storeRevision = remote.storeRevision;
       dirty = changes().length > 0;
       if (!dirty) atomicPublish = false;
       if (dirty) persistDraft(); else localStorage.removeItem(draftKey);
@@ -390,10 +449,13 @@ export async function logoutCloud() {
   clearTimeout(renewalTimer);
   clearTimeout(timer);
   if (dirty) persistDraft();
+  if (stagedPlan) await checkpointStaged();
   const previousSession = session;
   const url = state.workspaceUrl;
   ++generation;
   session = null;
+  stagedPlan = undefined;
+  storeRevision = undefined;
   draftKey = '';
   dirty = false;
   values = local;
@@ -416,6 +478,7 @@ export function exportCloudDraft() {
 
 export function restoreCloudBackup(input: unknown) {
   if (!session || busy) throw new Error('请先登录云端账户并等待当前请求完成。');
+  if (stagedPlan) throw new Error('仍有未完成的暂存提交，请先核实回执或取消后读取云端，再恢复备份。');
   const backup = validateSnapshot(input);
   splitDocuments(backup.values);
   values = { ...backup.values };

@@ -1,8 +1,9 @@
 import { isManagedKey, RESOURCE_FORMAT, semanticJson } from './cloudResources';
 
 export type Client = <T>(path: string, options?: RequestInit) => Promise<T>;
-export type Limits = { resourceBytes: number; metadataBytes: number; attachmentBytes: number; requestBytes: number; commitOperations: number; resourceAttachments: number; pageSize: number };
-export type Capabilities = { apiVersion: string; features: string[]; limits: Limits; authentication: { scheme: string; scope: string } };
+export type StagedLimits = { stagedBatchOperations: number; stagedBatchBytes: number; stagedCommitOperations: number; stagedCommitBytes: number; stagedBatchCount: number; stagedOpenSessionsPerAccount: number; stagedOpenSessionsPerWorkspace: number; stagedWorkspaceBytes: number; stagedLifetimeSeconds: number; stagedReceiptSeconds: number };
+export type Limits = { resourceBytes: number; metadataBytes: number; attachmentBytes: number; requestBytes: number; commitOperations: number; resourceAttachments: number; pageSize: number } & Partial<StagedLimits>;
+export type Capabilities = { apiVersion: string; features: string[]; limits: Limits; authentication: { scheme: string; scope: string }; stagedCommits?: { idempotencyScope: string; batchIdentity: string; receiptSeconds: number; contentEncoding: string } };
 export type StoredResource = { id: string; version: number; content: unknown };
 export type Upload = { id: string; sha256: string; size: number; contentType: string };
 export type ResourceBody = { key: string; title: string; format: string; formatVersion: number; kind: 'json'; contentType: 'application/json'; jsonContent: unknown; metadata: Record<string, never>; attachmentIds: string[] };
@@ -14,12 +15,32 @@ export class AttachmentIntegrityError extends Error {
   constructor(public attachmentId: string | undefined) { super('壁纸上传大小或 SHA-256 校验失败；已保留返回的附件 ID 供核查。'); }
 }
 
+export class ReadRevisionChanged extends Error {
+  status = 409;
+  details = { reason: 'read_revision_changed' };
+  constructor() { super('读取修订发生变化或响应缺少匹配的 Store-Revision，已保留本地视图。'); }
+}
+
+export function validateStoreRevision(value: unknown): string {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new Error('空间读取修订必须是十进制字符串。');
+  return value;
+}
+
+export function stagedLimits(caps: Capabilities): StagedLimits {
+  if (!caps.features.includes('commits.staged')) throw new Error('服务端尚未提供暂存提交能力。');
+  const keys = ['stagedBatchOperations', 'stagedBatchBytes', 'stagedCommitOperations', 'stagedCommitBytes', 'stagedBatchCount', 'stagedOpenSessionsPerAccount', 'stagedOpenSessionsPerWorkspace', 'stagedWorkspaceBytes', 'stagedLifetimeSeconds', 'stagedReceiptSeconds'] as const;
+  if (keys.some(key => !Number.isSafeInteger(caps.limits[key]) || caps.limits[key]! < 1)) throw new Error('暂存提交限额响应无效。');
+  if (caps.stagedCommits?.idempotencyScope !== 'workspace+commitId' || caps.stagedCommits.batchIdentity !== 'sha256-raw-utf8' || caps.stagedCommits.contentEncoding !== 'identity' || !Number.isSafeInteger(caps.stagedCommits.receiptSeconds) || caps.stagedCommits.receiptSeconds < 1) throw new Error('暂存提交重试契约不兼容。');
+  return caps.limits as Limits & StagedLimits;
+}
+
 export function validateCapabilities(input: Capabilities): Capabilities {
   const required = ['resources.json', 'resources.conditions', 'commits.atomic'];
   if (input?.apiVersion !== 'v1' || !Array.isArray(input.features) || required.some(feature => !input.features.includes(feature))) throw new Error('服务端缺少 JSON、条件写入或原子提交能力，不能连接。');
   if (input.authentication?.scheme !== 'Bearer' || input.authentication?.scope !== 'workspace') throw new Error('服务端认证方式不兼容。');
   const limits = ['resourceBytes', 'metadataBytes', 'attachmentBytes', 'requestBytes', 'commitOperations', 'resourceAttachments', 'pageSize'] as const;
   if (!input.limits || limits.some(key => !Number.isSafeInteger(input.limits[key]) || input.limits[key] < 1)) throw new Error('服务端限制响应无效。');
+  if (input.features.includes('commits.staged')) stagedLimits(input);
   return input;
 }
 
@@ -62,7 +83,7 @@ export async function prepareResource(key: string, content: unknown, client: Cli
   return { key, title: key, format: RESOURCE_FORMAT, formatVersion: 1, kind: 'json', contentType: 'application/json', jsonContent, metadata: {}, attachmentIds };
 }
 
-export async function loadResources(client: Client, download: (id: string) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>, knownKeys: Iterable<string> = []) {
+async function loadResourcesOnce(client: Client, download: (id: string) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>, knownKeys: Iterable<string>) {
   const records = new Map<string, StoredResource>();
   const blocked = new Set<string>();
   const seen = new Set<string>();
@@ -133,4 +154,27 @@ export async function loadResources(client: Client, download: (id: string) => Pr
   }
   if ([...referenced].some(key => !records.has(key))) throw new Error('分页遗漏顺序清单引用的资源；保留本地视图，需重新完整加载。');
   return { records, blocked, consistency: 'unfenced' as const };
+}
+
+export async function loadResources(client: Client, download: (id: string) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>, knownKeys: Iterable<string> = []): Promise<{ records: Map<string, StoredResource>; blocked: Set<string>; consistency: 'fenced' | 'unfenced'; storeRevision?: string }> {
+  const keys = [...knownKeys];
+  const fenced = caps.features.includes('resources.read-fence');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const bufferedUploads = new Map(uploads);
+    const revision = fenced ? validateStoreRevision((await client<{ storeRevision: string }>('/read-state')).storeRevision) : undefined;
+    const scoped: Client = (path, options = {}) => {
+      const headers = new Headers(options.headers);
+      if (revision !== undefined) headers.set('If-Store-Revision', revision);
+      return client(path, { ...options, headers });
+    };
+    try {
+      const loaded = await loadResourcesOnce(scoped, download, caps, bufferedUploads, keys);
+      for (const [hash, upload] of bufferedUploads) uploads.set(hash, upload);
+      return { ...loaded, consistency: fenced ? 'fenced' : 'unfenced', storeRevision: revision };
+    } catch (error) {
+      const details = error && typeof error === 'object' && 'details' in error ? error.details : null;
+      if (!error || typeof error !== 'object' || !('status' in error) || error.status !== 409 || !details || typeof details !== 'object' || !('reason' in details) || details.reason !== 'read_revision_changed' || attempt === 2) throw error;
+    }
+  }
+  throw new ReadRevisionChanged();
 }

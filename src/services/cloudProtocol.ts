@@ -1,15 +1,16 @@
 import { isManagedKey, RESOURCE_FORMAT, semanticJson } from './cloudResources';
+import { readBodies, readDelta, validateReadCapabilities } from './cloudRead';
 
 export type Client = <T>(path: string, options?: RequestInit) => Promise<T>;
 export type StagedLimits = { stagedBatchOperations: number; stagedBatchBytes: number; stagedCommitOperations: number; stagedCommitBytes: number; stagedBatchCount: number; stagedOpenSessionsPerAccount: number; stagedOpenSessionsPerWorkspace: number; stagedWorkspaceBytes: number; stagedLifetimeSeconds: number; stagedReceiptSeconds: number };
 export type Limits = { resourceBytes: number; metadataBytes: number; attachmentBytes: number; requestBytes: number; commitOperations: number; resourceAttachments: number; pageSize: number } & Partial<StagedLimits>;
-export type Capabilities = { apiVersion: string; features: string[]; limits: Limits; authentication: { scheme: string; scope: string }; stagedCommits?: { idempotencyScope: string; batchIdentity: string; receiptSeconds: number; contentEncoding: string }; eventStreams?: { batchEvents: number; eventBytes: number; batchBytes: number; pageEvents: number; pageBytes: number; appendRequestsPerMinute: number; idempotencyScope: string }; eventAggregation?: { rows: number; metrics: number; groupDimensions: number; requestBytes: number; concurrentQueries: number; operations: string[]; timeBuckets: string[] } };
+export type Capabilities = { apiVersion: string; features: string[]; limits: Limits; authentication: { scheme: string; scope: string }; resourceBatchRead?: { items: number; requestBytes: number; responseBytes: number; immutableVersions: boolean; missingItems: string; continuation: string }; resourceChanges?: { pageItems: number; pageBytes: number; cursorHours: number; retentionDays: number; scope: string; coalesced: boolean; tombstones: boolean; fixedTarget: boolean; content: string }; stagedCommits?: { idempotencyScope: string; batchIdentity: string; receiptSeconds: number; contentEncoding: string }; eventStreams?: { batchEvents: number; eventBytes: number; batchBytes: number; pageEvents: number; pageBytes: number; appendRequestsPerMinute: number; idempotencyScope: string }; eventAggregation?: { rows: number; metrics: number; groupDimensions: number; requestBytes: number; concurrentQueries: number; operations: string[]; timeBuckets: string[] } };
 export type StoredResource = { id: string; version: number; content: unknown };
 export type ResourceBaseline = { records: Map<string, StoredResource>; blocked: Set<string>; storeRevision?: string; checkedAt: number };
 export type Upload = { id: string; sha256: string; size: number; contentType: string };
 export type ResourceBody = { key: string; title: string; format: string; formatVersion: number; kind: 'json'; contentType: 'application/json'; jsonContent: unknown; metadata: Record<string, never>; attachmentIds: string[] };
 type Summary = { id: string; key: string; version: number; format: string; formatVersion: number; kind: string };
-type Resource = { summary: Summary; jsonContent: unknown; attachmentIds: string[] };
+export type Resource = { summary: Summary; jsonContent: unknown; attachmentIds: string[] };
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class AttachmentIntegrityError extends Error {
@@ -42,6 +43,7 @@ export function validateCapabilities(input: Capabilities): Capabilities {
   const limits = ['resourceBytes', 'metadataBytes', 'attachmentBytes', 'requestBytes', 'commitOperations', 'resourceAttachments', 'pageSize'] as const;
   if (!input.limits || limits.some(key => !Number.isSafeInteger(input.limits[key]) || input.limits[key] < 1)) throw new Error('服务端限制响应无效。');
   if (input.features.includes('commits.staged')) stagedLimits(input);
+  validateReadCapabilities(input);
   return input;
 }
 
@@ -120,6 +122,18 @@ async function loadResourcesOnce(client: Client, download: (id: string, image: U
       if (!error || typeof error !== 'object' || !('status' in error) || error.status !== 404) throw error;
     }
   }
+  const wanted = summaries.filter(summary => {
+    if (!UUID.test(summary.id) || !Number.isSafeInteger(summary.version) || summary.version < 1) throw new Error('资源摘要无效。');
+    const previous = cached.get(summary.key);
+    return previous?.id !== summary.id || previous.version !== summary.version || !Object.hasOwn(previous, 'content');
+  });
+  const bodies = await readBodies(client, caps, wanted.map(({ id }) => ({ id })));
+  await hydrateResources(summaries, bodies, records, cached, download, caps, uploads);
+  validateReferences(records);
+  return { records, blocked, consistency: 'unfenced' as const };
+}
+
+async function hydrateResources(summaries: Summary[], bodies: Map<string, Resource>, records: Map<string, StoredResource>, cached: Map<string, StoredResource>, download: (id: string, image: Upload) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>) {
   for (let offset = 0; offset < summaries.length; offset += 6) {
     await Promise.all(summaries.slice(offset, offset + 6).map(async summary => {
       if (!UUID.test(summary.id) || !Number.isSafeInteger(summary.version) || summary.version < 1) throw new Error('资源摘要无效。');
@@ -128,7 +142,7 @@ async function loadResourcesOnce(client: Client, download: (id: string, image: U
         records.set(summary.key, previous);
         return;
       }
-      const resource = await client<Resource>(`/resources/${summary.id}`);
+      const resource = bodies.get(summary.id);
       if (resource?.summary?.key !== summary.key || resource.summary.id !== summary.id || resource.summary.version !== summary.version || resource.summary.format !== RESOURCE_FORMAT || resource.summary.formatVersion !== 1 || resource.summary.kind !== 'json' || !Array.isArray(resource.attachmentIds)) throw new Error('读取期间资源发生变化，请重新读取。');
       if (!resource.jsonContent || typeof resource.jsonContent !== 'object' || !Object.hasOwn(resource.jsonContent, 'value')) throw new Error('云端资源内容包络无效。');
       let content = (resource.jsonContent as { value: unknown }).value;
@@ -150,6 +164,9 @@ async function loadResourcesOnce(client: Client, download: (id: string, image: U
       records.set(summary.key, { id: summary.id, version: summary.version, content });
     }));
   }
+}
+
+function validateReferences(records: Map<string, StoredResource>) {
   const referenced = new Set<string>();
   for (const [key, record] of records) {
     if (!key.endsWith('/order.json') || !Array.isArray(record.content)) continue;
@@ -159,7 +176,6 @@ async function loadResourcesOnce(client: Client, download: (id: string, image: U
     }
   }
   if ([...referenced].some(key => !records.has(key))) throw new Error('分页遗漏顺序清单引用的资源；保留本地视图，需重新完整加载。');
-  return { records, blocked, consistency: 'unfenced' as const };
 }
 
 export async function loadResources(client: Client, download: (id: string, image: Upload) => Promise<ArrayBuffer>, caps: Capabilities, uploads: Map<string, Upload>, knownKeys: Iterable<string> = [], baseline?: ResourceBaseline, force = false): Promise<{ records: Map<string, StoredResource>; blocked: Set<string>; consistency: 'fenced' | 'unfenced'; storeRevision?: string; checkedAt: number }> {
@@ -167,10 +183,44 @@ export async function loadResources(client: Client, download: (id: string, image
   const keys = [...knownKeys];
   const fenced = caps.features.includes('resources.read-fence');
   if (fenced && baseline?.storeRevision !== undefined && !force && Date.now() - baseline.checkedAt < 300000) return { ...baseline, records: new Map(baseline.records), blocked: new Set(baseline.blocked), consistency: 'fenced' };
+  let incremental = fenced && baseline?.storeRevision !== undefined && baseline.blocked.size === 0 && caps.features.includes('resources.changes') &&
+    (caps.features.includes('resources.batch-read') || caps.features.includes('resources.revisions'));
   for (let attempt = 0; attempt < 3; attempt++) {
     const bufferedUploads = new Map(uploads);
     const revision = fenced ? validateStoreRevision((await client<{ storeRevision: string }>('/read-state')).storeRevision) : undefined;
     if (fenced && baseline && revision === baseline.storeRevision) return { ...baseline, records: new Map(baseline.records), blocked: new Set(baseline.blocked), consistency: 'fenced', checkedAt: Date.now() };
+    if (incremental && baseline?.storeRevision !== undefined) {
+      try {
+        const delta = await readDelta(client, caps, baseline.storeRevision);
+        const records = new Map(baseline.records);
+        const blocked = new Set<string>();
+        for (const [key, record] of records) {
+          const change = delta.changes.get(record.id);
+          if (!change) continue;
+          if (change.version <= record.version) throw new Error('资源增量版本未递增。');
+          records.delete(key);
+        }
+        const summaries: Summary[] = [];
+        const seenKeys = new Set(records.keys());
+        for (const change of delta.changes.values()) {
+          if (change.deleted || !isManagedKey(change.key)) continue;
+          if (seenKeys.has(change.key)) throw new Error('资源增量出现重复逻辑键。');
+          seenKeys.add(change.key);
+          const summary = delta.bodies.get(change.id)?.summary;
+          if (change.format !== RESOURCE_FORMAT || summary?.formatVersion !== 1 || summary.kind !== 'json') { blocked.add(change.key); continue; }
+          summaries.push(summary);
+        }
+        await hydrateResources(summaries, delta.bodies, records, new Map(), download, caps, bufferedUploads);
+        validateReferences(records);
+        for (const [hash, upload] of bufferedUploads) uploads.set(hash, upload);
+        return { records, blocked, consistency: 'fenced', storeRevision: delta.targetRevision, checkedAt: Date.now() };
+      } catch (error) {
+        const details = error && typeof error === 'object' && 'details' in error ? error.details : null;
+        if (!error || typeof error !== 'object' || !('status' in error) || error.status !== 410 || !details || typeof details !== 'object' || !('fullSyncRequired' in details) || details.fullSyncRequired !== true) throw error;
+        incremental = false;
+        continue;
+      }
+    }
     const scoped: Client = (path, options = {}) => {
       const headers = new Headers(options.headers);
       if (revision !== undefined) headers.set('If-Store-Revision', revision);

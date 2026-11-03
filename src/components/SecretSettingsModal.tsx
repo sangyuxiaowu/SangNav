@@ -71,7 +71,6 @@ export const SecretSettingsModal: React.FC<SecretSettingsModalProps> = ({
       role="dialog"
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200"
-      onClick={onClose}
     >
       <div
         className="w-full max-w-md p-6 rounded-3xl bg-theme-surface border border-purple-500/30 shadow-2xl shadow-purple-950/40 text-theme-primary overflow-hidden flex flex-col max-h-[90vh] space-y-5"

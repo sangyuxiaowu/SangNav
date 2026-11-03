@@ -425,7 +425,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       role="dialog"
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
-      onClick={onClose}
     >
       <div
         className="w-full max-w-2xl lg:max-w-3xl bg-theme-surface border border-theme-default rounded-3xl shadow-theme-lg overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150 text-theme-primary"

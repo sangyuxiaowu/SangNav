@@ -128,7 +128,6 @@ export const LinkModal: React.FC<LinkModalProps> = ({
       role="dialog"
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
-      onClick={onClose}
     >
       <div
         className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-theme-surface border border-theme-default rounded-3xl p-6 shadow-theme-lg space-y-5 animate-in fade-in zoom-in-95 duration-150 text-theme-primary"

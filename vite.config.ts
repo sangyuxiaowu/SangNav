@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
+import packageJson from './package.json' with { type: 'json' };
 
 export default defineConfig(() => {
   return {
@@ -37,6 +38,9 @@ export default defineConfig(() => {
         },
       }),
     ],
+    define: {
+      __APP_VERSION__: JSON.stringify(packageJson.version),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

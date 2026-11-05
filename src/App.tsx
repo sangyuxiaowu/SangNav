@@ -796,10 +796,9 @@ export default function App() {
           <span>按 Alt+N 快捷新建网址</span>
           <span>·</span>
           <span>按 / 键激活全网搜索</span>
+          <span>·</span>
+          <span>Version {__APP_VERSION__}</span>
         </div>
-        <p className="text-[11px] opacity-75">
-          本地存储安全隐私
-        </p>
       </footer>
 
       {/* Modals */}

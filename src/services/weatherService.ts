@@ -3,6 +3,31 @@ import { WeatherData } from '../types/navigation';
 const WEATHER_CACHE_KEY = 'sangnav_weather_cache_cma_v3';
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes cache
 
+export function getSameDayCachedWeather(): WeatherData | null {
+  try {
+    const cached = localStorage.getItem(WEATHER_CACHE_KEY);
+    if (!cached) return null;
+
+    const parsed: WeatherData = JSON.parse(cached);
+    const cachedDate = new Date(parsed.cachedAt);
+    const today = new Date();
+    if (
+      !Number.isFinite(parsed.cachedAt) ||
+      cachedDate.getFullYear() !== today.getFullYear() ||
+      cachedDate.getMonth() !== today.getMonth() ||
+      cachedDate.getDate() !== today.getDate() ||
+      !Array.isArray(parsed.forecast) ||
+      parsed.forecast.length < 15
+    ) {
+      return null;
+    }
+
+    return { ...parsed, fetchStatus: 'cached' };
+  } catch {
+    return null;
+  }
+}
+
 interface CMAWeatherCityResponse {
   code: string | number;
   message?: string;
@@ -165,20 +190,9 @@ export async function fetchWeather(
 
   // 1. Check local cache if not forcing refresh (require full >= 15 forecast days)
   if (!forceRefresh) {
-    try {
-      const cached = localStorage.getItem(WEATHER_CACHE_KEY);
-      if (cached) {
-        const parsed: WeatherData = JSON.parse(cached);
-        if (
-          Date.now() - parsed.cachedAt < CACHE_TTL_MS &&
-          Array.isArray(parsed.forecast) &&
-          parsed.forecast.length >= 15
-        ) {
-          return { ...parsed, fetchStatus: 'cached' };
-        }
-      }
-    } catch {
-      // ignore cache parsing error
+    const cached = getSameDayCachedWeather();
+    if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
+      return cached;
     }
   }
 

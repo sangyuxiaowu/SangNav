@@ -17,7 +17,7 @@ import {
 } from './data/defaultData';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useBingWallpaper } from './hooks/useBingWallpaper';
-import { fetchWeather } from './services/weatherService';
+import { fetchWeather, getSameDayCachedWeather } from './services/weatherService';
 import { FloatingActions } from './components/FloatingActions';
 import { HeroSection } from './components/HeroSection';
 import { SearchBar } from './components/SearchBar';
@@ -117,12 +117,11 @@ export default function App() {
   }, [cloudState.workspaceUrl, cloudState.username]);
 
   // Weather State
-  const [weather, setWeather] = useState<WeatherData | null>(null);
-  const [weatherLoading, setWeatherLoading] = useState(true);
+  const [weather, setWeather] = useState<WeatherData | null>(() => getSameDayCachedWeather());
+  const [weatherLoading, setWeatherLoading] = useState(() => !getSameDayCachedWeather());
 
   // Load weather on mount or manual refresh
   const loadWeather = useCallback(async (forceRefresh = false): Promise<boolean> => {
-    setWeatherLoading(true);
     try {
       const data = await fetchWeather({ forceRefresh });
       setWeather(data);

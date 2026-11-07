@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fetchWeather } from './weatherService';
+import { fetchWeather, getSameDayCachedWeather } from './weatherService';
 
 const CACHE_KEY = 'sangnav_weather_cache_cma_v3';
 
@@ -35,7 +35,20 @@ test('weather refresh distinguishes fresh responses from stale and fallback data
     values.set(CACHE_KEY, JSON.stringify({
       ...fresh,
       fetchStatus: 'fresh',
-      cachedAt: 1,
+      cachedAt: Date.now(),
+      current: { ...fresh.current, temperature: 12 },
+    }));
+    assert.equal(getSameDayCachedWeather()?.current.temperature, 12);
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    values.set(CACHE_KEY, JSON.stringify({ ...fresh, cachedAt: yesterday.getTime() }));
+    assert.equal(getSameDayCachedWeather(), null);
+
+    values.set(CACHE_KEY, JSON.stringify({
+      ...fresh,
+      fetchStatus: 'fresh',
+      cachedAt: Date.now(),
       current: { ...fresh.current, temperature: 12 },
     }));
     globalThis.fetch = async () => { throw new Error('offline'); };

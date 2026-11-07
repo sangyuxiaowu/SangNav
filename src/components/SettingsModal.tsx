@@ -33,8 +33,6 @@ import {
   Pencil,
   Cloud
 } from 'lucide-react';
-import { AnalyticsView } from './AnalyticsView';
-import { CloudAccount } from './CloudAccount';
 import { getCloudState, subscribeStorage } from '../services/cloudStorage';
 import { clearAllAnalytics } from '../services/analyticsDb';
 import { 
@@ -44,6 +42,13 @@ import {
   DEFAULT_SETTINGS,
   WALLPAPER_PRESETS 
 } from '../data/defaultData';
+
+const AnalyticsView = React.lazy(() =>
+  import('./AnalyticsView').then(({ AnalyticsView }) => ({ default: AnalyticsView }))
+);
+const CloudAccount = React.lazy(() =>
+  import('./CloudAccount').then(({ CloudAccount }) => ({ default: CloudAccount }))
+);
 
 export const PRESET_ENGINE_COLORS = [
   { name: '经典蓝', hex: '#2563EB' },
@@ -911,13 +916,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* TAB 3: Analytics & Usage Statistics */}
           {activeTab === 'analytics' && (
-            <AnalyticsView
-              faviconProvider={settings.faviconProvider}
-              links={links}
-              onOpenLink={(url) => {
-                window.open(url, '_blank', 'noopener,noreferrer');
-              }}
-            />
+            <React.Suspense fallback={<div className="py-8 text-center text-xs text-theme-muted">正在加载统计数据...</div>}>
+              <AnalyticsView
+                faviconProvider={settings.faviconProvider}
+                links={links}
+                onOpenLink={(url) => {
+                  window.open(url, '_blank', 'noopener,noreferrer');
+                }}
+              />
+            </React.Suspense>
           )}
 
           {/* TAB 4: Search Engines */}
@@ -1371,7 +1378,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* TAB: Cloud Account & Sync */}
           {activeTab === 'cloud' && (
             <div className="space-y-4">
-              <CloudAccount />
+              <React.Suspense fallback={<div className="py-8 text-center text-xs text-theme-muted">正在加载云账户...</div>}>
+                <CloudAccount />
+              </React.Suspense>
             </div>
           )}
 

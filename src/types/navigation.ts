@@ -35,11 +35,14 @@ export interface SearchEngine {
 }
 
 export interface WeatherData {
+  fetchStatus?: 'fresh' | 'cached' | 'stale' | 'fallback';
   location: {
     city: string;
     province: string;
     country: string;
     name: string;
+    lat?: number;
+    lon?: number;
   };
   current: {
     temperature: number;
@@ -51,6 +54,14 @@ export interface WeatherData {
     windSpeed: number;
     windScale: string;
     updateTime: string;
+    condition?: string;
+    tips?: string;
+    uvi?: string;
+    sunrise?: string;
+    sunset?: string;
+    rainNotice?: string;
+    aqi?: number;
+    aqiText?: string;
   };
   forecast: Array<{
     date: string;
@@ -62,6 +73,21 @@ export interface WeatherData {
     dayWindLevel: string;
     dayWeatherIcon?: string;
     nightWeatherIcon?: string;
+    aqi?: number;
+    aqiText?: string;
+  }>;
+  hourly?: Array<{
+    hour: string;
+    temp: string;
+    condition: string;
+    pop?: string;
+    humidity?: string;
+    windDir?: string;
+  }>;
+  lifeIndices?: Array<{
+    name: string;
+    status: string;
+    desc: string;
   }>;
   alarms?: Array<{
     id: string;
@@ -71,7 +97,6 @@ export interface WeatherData {
     effective: string;
   }>;
   cachedAt: number;
-  queryIp?: string;
 }
 
 export type ThemeMode = 'dark' | 'midnight' | 'light' | 'emerald' | 'amber' | 'cyber';

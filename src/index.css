@@ -20,6 +20,26 @@
   .animate-shake {
     animation: shake 0.4s ease-in-out;
   }
+
+  /* Sleek theme-adaptive scrollbar */
+  .sleek-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+  .sleek-scrollbar::-webkit-scrollbar {
+    height: 5px;
+    width: 5px;
+  }
+  .sleek-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .sleek-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+  }
+  .sleek-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
 }
 
 :root {

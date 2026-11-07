@@ -43,12 +43,19 @@ export default defineConfig(() => {
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve('.'),
       },
     },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      proxy: {
+        '/api/cma': {
+          target: 'https://data.cma.cn/api',
+          changeOrigin: true,
+          rewrite: (p: string) => p.replace(/^\/api\/cma/, ''),
+        },
+      },
     },
   };
 });

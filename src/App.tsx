@@ -26,7 +26,6 @@ import { CategoryNav } from './components/CategoryNav';
 import { LinkGrid } from './components/LinkGrid';
 import { LinkModal } from './components/LinkModal';
 import { CategoryModal } from './components/CategoryModal';
-import { SettingsModal } from './components/SettingsModal';
 import { getCloudState, isCloudActive, restoreCloudAccount, subscribeStorage } from './services/cloudStorage';
 import { SecretLockModal } from './components/SecretLockModal';
 import { SecretSettingsModal } from './components/SecretSettingsModal';
@@ -35,6 +34,10 @@ import { formatUrl, getFaviconUrl, isBrowserInternalUrl, resolveSubLinkUrl } fro
 import { recordVisit, seedInitialAnalyticsIfEmpty } from './services/analyticsDb';
 import { deleteCachedFavicon } from './services/faviconDb';
 import { Sparkles, Layers, ShieldCheck, Compass, CheckCircle2, Lock, EyeOff, Copy, X } from 'lucide-react';
+
+const SettingsModal = React.lazy(() =>
+  import('./components/SettingsModal').then(({ SettingsModal }) => ({ default: SettingsModal }))
+);
 
 export default function App() {
   // Persistent State
@@ -58,6 +61,7 @@ export default function App() {
   const [defaultCategoryForNewLink, setDefaultCategoryForNewLink] = useState<string | undefined>();
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [hasOpenedSettingsModal, setHasOpenedSettingsModal] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data' | 'cloud'>('appearance');
   const [browserUrlNotice, setBrowserUrlNotice] = useState<{
     url: string;
@@ -70,6 +74,12 @@ export default function App() {
   const [secretCategories, setSecretCategories] = useLocalStorage<NavCategory[]>('sangnav_secret_categories', DEFAULT_SECRET_CATEGORIES);
   const [secretPattern, setSecretPattern] = useLocalStorage<number[] | null>('sangnav_secret_pattern', null);
   const [autoLockOnBlur, setAutoLockOnBlur] = useLocalStorage<boolean>('sangnav_secret_autolock', false);
+
+  const openSettingsModal = (tab: typeof settingsInitialTab) => {
+    setSettingsInitialTab(tab);
+    setHasOpenedSettingsModal(true);
+    setIsSettingsModalOpen(true);
+  };
 
   const faviconSources = JSON.stringify([...new Set(
     [...links, ...secretLinks].flatMap((link) =>
@@ -110,14 +120,16 @@ export default function App() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
 
-  // Load weather on mount
-  const loadWeather = useCallback(async (customIp?: string) => {
+  // Load weather on mount or manual refresh
+  const loadWeather = useCallback(async (forceRefresh = false): Promise<boolean> => {
     setWeatherLoading(true);
     try {
-      const data = await fetchWeather(customIp, !!customIp);
+      const data = await fetchWeather({ forceRefresh });
       setWeather(data);
+      return data.fetchStatus === 'fresh';
     } catch (e) {
       console.warn('Weather fetch error:', e);
+      return false;
     } finally {
       setWeatherLoading(false);
     }
@@ -647,10 +659,7 @@ export default function App() {
           links={currentLinks}
           onSelectLink={handleOpenLink}
           onFilterLinks={setSearchFilterQuery}
-          onOpenSearchSettings={() => {
-            setSettingsInitialTab('search');
-            setIsSettingsModalOpen(true);
-          }}
+          onOpenSearchSettings={() => openSettingsModal('search')}
         />
 
         {/* Pinned Bookmarks Dock (if enabled) */}
@@ -772,14 +781,8 @@ export default function App() {
           setDefaultCategoryForNewLink(activeCategoryId === 'all' ? undefined : activeCategoryId);
           setIsLinkModalOpen(true);
         }}
-        onOpenCloud={() => {
-          setSettingsInitialTab('cloud');
-          setIsSettingsModalOpen(true);
-        }}
-        onOpenSettings={() => {
-          setSettingsInitialTab('appearance');
-          setIsSettingsModalOpen(true);
-        }}
+        onOpenCloud={() => openSettingsModal('cloud')}
+        onOpenSettings={() => openSettingsModal('appearance')}
         isSecretMode={isSecretMode}
         onExitSecretMode={() => {
           setIsSecretMode(false);
@@ -825,19 +828,23 @@ export default function App() {
         onMoveCategory={handleMoveCategory}
       />
 
-      <SettingsModal
-        isOpen={isSettingsModalOpen}
-        onClose={() => setIsSettingsModalOpen(false)}
-        settings={settings}
-        onUpdateSettings={setSettings}
-        engines={engines}
-        onUpdateEngines={setEngines}
-        categories={categories}
-        links={links}
-        onImportAllData={handleImportAllData}
-        onResetToDefaults={handleResetToDefaults}
-        initialTab={settingsInitialTab}
-      />
+      {hasOpenedSettingsModal && (
+        <React.Suspense fallback={null}>
+          <SettingsModal
+            isOpen={isSettingsModalOpen}
+            onClose={() => setIsSettingsModalOpen(false)}
+            settings={settings}
+            onUpdateSettings={setSettings}
+            engines={engines}
+            onUpdateEngines={setEngines}
+            categories={categories}
+            links={links}
+            onImportAllData={handleImportAllData}
+            onResetToDefaults={handleResetToDefaults}
+            initialTab={settingsInitialTab}
+          />
+        </React.Suspense>
+      )}
 
       {/* Secret Pattern Lock Modal */}
       <SecretLockModal

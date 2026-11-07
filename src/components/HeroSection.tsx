@@ -5,7 +5,7 @@ import { WeatherWidget } from './WeatherWidget';
 interface HeroSectionProps {
   weather: WeatherData | null;
   weatherLoading: boolean;
-  onRefreshWeather: () => Promise<void>;
+  onRefreshWeather: (force?: boolean) => Promise<boolean>;
   showWeatherInHero: boolean;
   onTriggerSecretMode?: () => void;
 }

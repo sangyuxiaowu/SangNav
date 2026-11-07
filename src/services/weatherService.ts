@@ -2,6 +2,36 @@ import { WeatherData } from '../types/navigation';
 
 const WEATHER_CACHE_KEY = 'sangnav_weather_cache_cma_v3';
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes cache
+const WIND_DIRECTION_LABELS: Record<string, string> = {
+  N: '北风',
+  NNE: '北偏东风',
+  NE: '东北风',
+  ENE: '东北偏东风',
+  E: '东风',
+  ESE: '东南偏东风',
+  SE: '东南风',
+  SSE: '南偏东风',
+  S: '南风',
+  SSW: '南偏西风',
+  SW: '西南风',
+  WSW: '西南偏西风',
+  W: '西风',
+  WNW: '西北偏西风',
+  NW: '西北风',
+  NNW: '北偏西风',
+};
+
+function formatHourlyWind(direction?: string, level?: string | number): string | undefined {
+  const trimmedDirection = direction?.trim();
+  const directionLabel = trimmedDirection
+    ? WIND_DIRECTION_LABELS[trimmedDirection.toUpperCase()] || trimmedDirection
+    : '';
+  const hasLevel = level !== undefined && String(level).trim() !== '';
+  const levelLabel = hasLevel ? `${level}级` : '';
+
+  if (directionLabel && levelLabel) return `${directionLabel} ${levelLabel}`;
+  return directionLabel || (levelLabel ? `风力${levelLabel}` : undefined);
+}
 
 export function getSameDayCachedWeather(): WeatherData | null {
   try {
@@ -379,7 +409,7 @@ export async function fetchWeather(
         condition: h.condition || '',
         pop: h.pop !== undefined ? `${h.pop}%` : undefined,
         humidity: h.humidity !== undefined ? `${h.humidity}%` : undefined,
-        windDir: h.windDir || undefined,
+        windDir: formatHourlyWind(h.windDir, h.windlevel),
       })),
       lifeIndices,
       alarms,

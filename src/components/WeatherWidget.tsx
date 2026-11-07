@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Cloud, 
   Sun, 
+  CloudDrizzle,
   CloudRain, 
+  CloudRainWind,
   CloudSnow, 
   CloudLightning, 
   Wind, 
@@ -19,7 +21,9 @@ import {
   Sunset,
   Sparkles,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Clock,
+  Calendar
 } from 'lucide-react';
 import { WeatherData } from '../types/navigation';
 
@@ -37,6 +41,15 @@ export function getWeatherIcon(weatherDesc: string = '', className = 'w-5 h-5') 
   }
   if (desc.includes('雪')) {
     return <CloudSnow className={`${className} text-cyan-200`} />;
+  }
+  if (desc.includes('暴雨') || desc.includes('大雨')) {
+    return <CloudRainWind className={`${className} text-indigo-600 dark:text-indigo-300`} />;
+  }
+  if (desc.includes('中雨')) {
+    return <CloudRain className={`${className} text-blue-500 dark:text-blue-400`} />;
+  }
+  if (desc.includes('小雨') || desc.includes('毛毛雨')) {
+    return <CloudDrizzle className={`${className} text-sky-400 dark:text-sky-300`} />;
   }
   if (desc.includes('雨')) {
     return <CloudRain className={`${className} text-blue-500 dark:text-blue-400`} />;
@@ -142,9 +155,7 @@ export const WeatherWidget: React.FC<WeatherWidgetProps> = ({
   const [modalOpen, setModalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [currentNoticeIdx, setCurrentNoticeIdx] = useState(0);
-
-  const hourlyScrollRef = useRef<HTMLDivElement>(null);
-  const forecastScrollRef = useRef<HTMLDivElement>(null);
+  const [forecastTab, setForecastTab] = useState<'hourly' | 'daily'>('hourly');
 
   const [refreshSuccess, setRefreshSuccess] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
@@ -174,13 +185,6 @@ export const WeatherWidget: React.FC<WeatherWidgetProps> = ({
       setTimeout(() => setRefreshFailed(false), 2500);
     } finally {
       setRefreshing(false);
-    }
-  };
-
-  const scrollHourly = (direction: 'left' | 'right') => {
-    if (hourlyScrollRef.current) {
-      const scrollAmount = direction === 'left' ? -260 : 260;
-      hourlyScrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
   };
 
@@ -232,10 +236,26 @@ export const WeatherWidget: React.FC<WeatherWidgetProps> = ({
   const currentWeatherDesc = weather?.current.condition || weather?.forecast?.[0]?.dayWeather || '多云';
   const tempDisplay = weather ? `${Math.round(weather.current.temperature)}°` : '--°';
 
-  // 15-day temperature curve data
+  // 1. 24-Hour Hourly Trend Curve Data
+  const hourlyList = weather?.hourly || [];
+  const hourlyColWidth = 66;
+  const hourlyChartHeight = 84;
+  const hourlyTemps = hourlyList.map((h) => Number(h.temp) || 0);
+  const maxHourly = hourlyTemps.length > 0 ? Math.max(...hourlyTemps) : 25;
+  const minHourly = hourlyTemps.length > 0 ? Math.min(...hourlyTemps) : 15;
+  const hourlyRange = Math.max(maxHourly - minHourly, 4);
+
+  const hourlyPoints = hourlyList.map((_, i) => {
+    const x = i * hourlyColWidth + hourlyColWidth / 2;
+    const y = 22 + ((maxHourly - hourlyTemps[i]) / hourlyRange) * 38;
+    return { x, y };
+  });
+  const hourlyPath = createSmoothPath(hourlyPoints);
+
+  // 2. 15-Day Daily Dual-Temperature Curve Data (comfortably spacious with 84px height)
   const forecastList = weather?.forecast || [];
-  const colWidth = 66;
-  const chartHeight = 60;
+  const dailyColWidth = 66;
+  const dailyChartHeight = 84;
   const todayStr = new Date().toISOString().split('T')[0];
 
   const highTemps = forecastList.map((f) => Number(f.dayTemp) || 0);
@@ -250,14 +270,14 @@ export const WeatherWidget: React.FC<WeatherWidgetProps> = ({
   const lowRange = Math.max(maxLow - minLow, 4);
 
   const highPoints = forecastList.map((_, i) => {
-    const x = i * colWidth + colWidth / 2;
-    const y = 14 + ((maxHigh - highTemps[i]) / highRange) * 14;
+    const x = i * dailyColWidth + dailyColWidth / 2;
+    const y = 18 + ((maxHigh - highTemps[i]) / highRange) * 22;
     return { x, y };
   });
 
   const lowPoints = forecastList.map((_, i) => {
-    const x = i * colWidth + colWidth / 2;
-    const y = 38 + ((maxLow - lowTemps[i]) / lowRange) * 14;
+    const x = i * dailyColWidth + dailyColWidth / 2;
+    const y = 52 + ((maxLow - lowTemps[i]) / lowRange) * 22;
     return { x, y };
   });
 
@@ -537,231 +557,306 @@ export const WeatherWidget: React.FC<WeatherWidgetProps> = ({
               </div>
             )}
 
-            {/* 24-Hour Hourly Trend with Consistent Box Heights */}
-            {weather?.hourly && weather.hourly.length > 0 && (
-              <div className="space-y-1.5">
+            {/* Forecast Tabs Switcher: 24-Hour Hourly Trend vs 15-Day Weather Forecast */}
+            {(hourlyList.length > 0 || forecastList.length > 0) && (
+              <div className="space-y-2">
+                {/* Switcher Header */}
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold text-theme-muted flex items-center gap-1.5">
-                    <span>24小时逐小时预报</span>
-                  </h4>
-                  <div className="flex items-center gap-1">
+                  {/* Segmented Control Pill */}
+                  <div className="inline-flex items-center p-1 rounded-xl bg-theme-base border border-theme-subtle gap-1">
                     <button
                       type="button"
-                      onClick={() => scrollHourly('left')}
-                      className="p-1 rounded-md text-theme-muted hover:text-theme-primary hover:bg-theme-surface cursor-pointer transition-colors"
-                      title="向前滚动"
+                      onClick={() => setForecastTab('hourly')}
+                      className={`px-3 py-1 rounded-lg text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                        forecastTab === 'hourly'
+                          ? 'bg-theme-surface text-theme-primary font-semibold shadow-xs'
+                          : 'text-theme-muted hover:text-theme-primary font-medium'
+                      }`}
                     >
-                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <Clock className="w-3.5 h-3.5 text-blue-500" />
+                      <span>24小时逐时</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => scrollHourly('right')}
-                      className="p-1 rounded-md text-theme-muted hover:text-theme-primary hover:bg-theme-surface cursor-pointer transition-colors"
-                      title="向后滚动"
+                      onClick={() => setForecastTab('daily')}
+                      className={`px-3 py-1 rounded-lg text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                        forecastTab === 'daily'
+                          ? 'bg-theme-surface text-theme-primary font-semibold shadow-xs'
+                          : 'text-theme-muted hover:text-theme-primary font-medium'
+                      }`}
                     >
-                      <ChevronRight className="w-3.5 h-3.5" />
+                      <Calendar className="w-3.5 h-3.5 text-amber-500" />
+                      <span>15日天气预报</span>
                     </button>
                   </div>
+
+                  <span className="text-[11px] text-theme-muted/70 font-mono hidden sm:inline">
+                    {forecastTab === 'hourly'
+                      ? '左右滑动浏览24小时气温走势'
+                      : '含昨日对比 · 左右滑动查看趋势'}
+                  </span>
                 </div>
 
-                <div 
-                  ref={hourlyScrollRef}
-                  className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 scroll-smooth"
-                >
-                  {weather.hourly.map((h, idx) => (
+                {/* Tab 1: 24-Hour Hourly Trend Curve with Horizontal Sleek Scrollbar */}
+                {forecastTab === 'hourly' && hourlyList.length > 0 && (
+                  <div className="overflow-x-auto sleek-scrollbar px-2.5 pt-2.5 pb-2 rounded-2xl bg-theme-base border border-theme-default select-none animate-in fade-in duration-150">
                     <div 
-                      key={idx}
-                      className="h-[102px] w-[64px] min-w-[64px] flex flex-col justify-between items-center py-2 px-1 rounded-xl bg-theme-base border border-theme-subtle text-center shrink-0"
+                      className="flex flex-col relative select-none"
+                      style={{ width: `${hourlyList.length * hourlyColWidth}px` }}
                     >
-                      <span className="text-[10px] text-theme-muted font-mono leading-none">{h.hour}</span>
-
-                      <div className="flex items-center justify-center my-0.5">
-                        {getWeatherIcon(h.condition, 'w-4 h-4')}
-                      </div>
-
-                      <span className="font-mono text-xs font-semibold text-theme-primary leading-none">{h.temp}°</span>
-
-                      <span className="text-[10px] text-theme-secondary truncate w-full leading-tight">{h.condition}</span>
-
-                      <div className="h-3 flex items-center justify-center w-full">
-                        {h.pop && h.pop !== '0%' ? (
-                          <span className="text-[9px] text-blue-600 dark:text-blue-400 font-mono font-medium leading-none">
-                            🌧{h.pop}
-                          </span>
-                        ) : (
-                          <span className="text-[8px] text-theme-muted/30 select-none leading-none">·</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 15-Day Weather Forecast with Dual-Temperature Curve (Yesterday grayed out) */}
-            {forecastList.length > 0 && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold text-theme-muted flex items-center gap-1.5">
-                    <span>15日天气预报趋势</span>
-                  </h4>
-                </div>
-
-                <div 
-                  ref={forecastScrollRef}
-                  className="overflow-x-auto sleek-scrollbar px-2.5 pt-2 pb-2 rounded-2xl bg-theme-base border border-theme-default select-none"
-                >
-                  <div 
-                    className="flex flex-col relative select-none"
-                    style={{ width: `${forecastList.length * colWidth}px` }}
-                  >
-                    {/* Top Section: Day label, Date, Daytime Icon & Condition */}
-                    <div className="flex items-center">
-                      {forecastList.map((fc, i) => {
-                        const { dayLabel, monthDay, isYesterday, isCurrentDay } = getDayInfo(fc.date, i, todayStr);
-                        return (
+                      {/* Top: Hour, Icon & Condition */}
+                      <div className="flex items-center">
+                        {hourlyList.map((h, i) => (
                           <div 
                             key={i} 
-                            style={{ width: `${colWidth}px` }} 
-                            className={`flex flex-col items-center text-center shrink-0 ${
-                              isYesterday ? 'opacity-40 grayscale-[50%]' : ''
-                            }`}
+                            style={{ width: `${hourlyColWidth}px` }} 
+                            className="flex flex-col items-center text-center shrink-0"
                           >
-                            <span className={`text-[11px] leading-tight ${
-                              isCurrentDay 
-                                ? 'font-bold text-blue-600 dark:text-blue-400' 
-                                : 'font-medium text-theme-primary'
-                            }`}>
-                              {dayLabel}
+                            <span className="text-[11px] font-mono font-medium text-theme-primary leading-tight">
+                              {h.hour}
                             </span>
-                            <span className="text-[10px] text-theme-muted font-mono leading-tight mt-0.5">
-                              {monthDay}
-                            </span>
-                            <div className="my-1 flex items-center justify-center">
-                              {getWeatherIcon(fc.dayWeather, 'w-4 h-4')}
+                            <div className="my-1.5 flex items-center justify-center">
+                              {getWeatherIcon(h.condition, 'w-4 h-4')}
                             </div>
-                            <span className="text-[10px] font-medium text-theme-primary truncate w-full px-1 leading-tight">
-                              {fc.dayWeather}
+                            <span className="text-[10px] font-medium text-theme-secondary truncate w-full px-1 leading-tight">
+                              {h.condition}
                             </span>
                           </div>
-                        );
-                      })}
+                        ))}
+                      </div>
+
+                      {/* Middle: Connected Temperature Curve SVG */}
+                      <div className="relative my-1" style={{ height: `${hourlyChartHeight}px` }}>
+                        <svg 
+                          width={hourlyList.length * hourlyColWidth} 
+                          height={hourlyChartHeight}
+                          className="overflow-visible"
+                        >
+                          {/* Smooth connecting curve */}
+                          <path 
+                            d={hourlyPath} 
+                            fill="none" 
+                            stroke="#38bdf8" 
+                            strokeWidth="2.5" 
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+
+                          {/* Data points and temperature labels */}
+                          {hourlyList.map((_, i) => {
+                            const hp = hourlyPoints[i];
+                            return (
+                              <g key={i}>
+                                <circle 
+                                  cx={hp.x} 
+                                  cy={hp.y} 
+                                  r="2.5" 
+                                  fill="#38bdf8" 
+                                  stroke="var(--bg-base, #171717)" 
+                                  strokeWidth="1.5" 
+                                />
+                                <text 
+                                  x={hp.x} 
+                                  y={hp.y - 6} 
+                                  textAnchor="middle" 
+                                  fontSize="10.5" 
+                                  fontWeight="700" 
+                                  fill="currentColor"
+                                  className="fill-theme-primary font-mono select-none"
+                                >
+                                  {hourlyTemps[i]}°
+                                </text>
+                              </g>
+                            );
+                          })}
+                        </svg>
+                      </div>
+
+                      {/* Bottom: Precipitation POP & Wind */}
+                      <div className="flex items-center">
+                        {hourlyList.map((h, i) => (
+                          <div 
+                            key={i} 
+                            style={{ width: `${hourlyColWidth}px` }} 
+                            className="flex flex-col items-center text-center shrink-0 space-y-0.5"
+                          >
+                            <div className="h-4 flex items-center justify-center">
+                              {h.pop && h.pop !== '0%' ? (
+                                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-mono font-medium">
+                                  🌧{h.pop}
+                                </span>
+                              ) : (
+                                <span className="text-[9px] text-theme-muted/40">--</span>
+                              )}
+                            </div>
+                            <span 
+                              className="text-[9px] text-theme-muted w-full px-1 leading-tight min-h-[2.4em] whitespace-pre-line break-words flex items-center justify-center"
+                              title={h.windDir || '微风'}
+                            >
+                              {(h.windDir || '微风').replace(/\s*(\d+(?:-\d+)?级)$/, '\n$1')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
+                  </div>
+                )}
 
-                    {/* Middle Section: Connected Dual Temperature Curves SVG */}
-                    <div className="relative my-0.5" style={{ height: `${chartHeight}px` }}>
-                      <svg 
-                        width={forecastList.length * colWidth} 
-                        height={chartHeight}
-                        className="overflow-visible"
-                      >
-                        {/* High temperature connecting curve */}
-                        <path 
-                          d={highPath} 
-                          fill="none" 
-                          stroke="#f59e0b" 
-                          strokeWidth="2" 
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-
-                        {/* Low temperature connecting curve */}
-                        <path 
-                          d={lowPath} 
-                          fill="none" 
-                          stroke="#38bdf8" 
-                          strokeWidth="2" 
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-
-                        {/* Point dots and temperature labels */}
-                        {forecastList.map((_, i) => {
-                          const hp = highPoints[i];
-                          const lp = lowPoints[i];
-                          const isYesterday = i === 0 && forecastList[i].date < todayStr;
+                {/* Tab 2: 15-Day Weather Forecast with Dual-Temperature Curve & Sleek Scrollbar */}
+                {forecastTab === 'daily' && forecastList.length > 0 && (
+                  <div className="overflow-x-auto sleek-scrollbar px-2.5 pt-2.5 pb-2 rounded-2xl bg-theme-base border border-theme-default select-none animate-in fade-in duration-150">
+                    <div 
+                      className="flex flex-col relative select-none"
+                      style={{ width: `${forecastList.length * dailyColWidth}px` }}
+                    >
+                      {/* Top Section: Day label, Date, Daytime Icon & Condition */}
+                      <div className="flex items-center">
+                        {forecastList.map((fc, i) => {
+                          const { dayLabel, monthDay, isYesterday, isCurrentDay } = getDayInfo(fc.date, i, todayStr);
                           return (
-                            <g key={i} className={isYesterday ? 'opacity-40' : ''}>
-                              {/* High point */}
-                              <circle 
-                                cx={hp.x} 
-                                cy={hp.y} 
-                                r="2.5" 
-                                fill="#f59e0b" 
-                                stroke="var(--bg-base, #171717)" 
-                                strokeWidth="1.5" 
-                              />
-                              <text 
-                                x={hp.x} 
-                                y={hp.y - 4} 
-                                textAnchor="middle" 
-                                fontSize="10" 
-                                fontWeight="700" 
-                                fill="currentColor"
-                                className="fill-theme-primary font-mono select-none"
-                              >
-                                {highTemps[i]}°
-                              </text>
-
-                              {/* Low point */}
-                              <circle 
-                                cx={lp.x} 
-                                cy={lp.y} 
-                                r="2.5" 
-                                fill="#38bdf8" 
-                                stroke="var(--bg-base, #171717)" 
-                                strokeWidth="1.5" 
-                              />
-                              <text 
-                                x={lp.x} 
-                                y={lp.y + 11} 
-                                textAnchor="middle" 
-                                fontSize="10" 
-                                fontWeight="700" 
-                                fill="currentColor"
-                                className="fill-theme-primary font-mono select-none"
-                              >
-                                {lowTemps[i]}°
-                              </text>
-                            </g>
+                            <div 
+                              key={i} 
+                              style={{ width: `${dailyColWidth}px` }} 
+                              className={`flex flex-col items-center text-center shrink-0 ${
+                                isYesterday ? 'opacity-40 grayscale-[50%]' : ''
+                              }`}
+                            >
+                              <span className={`text-[11px] leading-tight ${
+                                isCurrentDay 
+                                  ? 'font-bold text-blue-600 dark:text-blue-400' 
+                                  : 'font-medium text-theme-primary'
+                              }`}>
+                                {dayLabel}
+                              </span>
+                              <span className="text-[10px] text-theme-muted font-mono leading-tight mt-0.5">
+                                {monthDay}
+                              </span>
+                              <div className="my-1.5 flex items-center justify-center">
+                                {getWeatherIcon(fc.dayWeather, 'w-4 h-4')}
+                              </div>
+                              <span className="text-[10px] font-medium text-theme-primary truncate w-full px-1 leading-tight">
+                                {fc.dayWeather}
+                              </span>
+                            </div>
                           );
                         })}
-                      </svg>
-                    </div>
+                      </div>
 
-                    {/* Bottom Section: Nighttime Icon, Condition, Wind & AQI */}
-                    <div className="flex items-center">
-                      {forecastList.map((fc, i) => {
-                        const isYesterday = i === 0 && fc.date < todayStr;
-                        return (
-                          <div 
-                            key={i} 
-                            style={{ width: `${colWidth}px` }} 
-                            className={`flex flex-col items-center text-center shrink-0 ${
-                              isYesterday ? 'opacity-40 grayscale-[50%]' : ''
-                            }`}
-                          >
-                            <div className="flex items-center justify-center">
-                              {getWeatherIcon(fc.nightWeather, 'w-3.5 h-3.5')}
-                            </div>
-                            <span className="text-[10px] text-theme-secondary truncate w-full px-1 mt-0.5 leading-tight">
-                              {fc.nightWeather}
-                            </span>
-                            <span 
-                              className="text-[9px] text-theme-muted truncate w-full px-1 leading-tight mt-0.5"
-                              title={`${fc.dayWindDirection} ${fc.dayWindLevel}`}
+                      {/* Middle Section: Connected Dual Temperature Curves SVG */}
+                      <div className="relative my-1" style={{ height: `${dailyChartHeight}px` }}>
+                        <svg 
+                          width={forecastList.length * dailyColWidth} 
+                          height={dailyChartHeight}
+                          className="overflow-visible"
+                        >
+                          {/* High temperature connecting curve */}
+                          <path 
+                            d={highPath} 
+                            fill="none" 
+                            stroke="#f59e0b" 
+                            strokeWidth="2.5" 
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+
+                          {/* Low temperature connecting curve */}
+                          <path 
+                            d={lowPath} 
+                            fill="none" 
+                            stroke="#38bdf8" 
+                            strokeWidth="2.5" 
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+
+                          {/* Point dots and temperature labels */}
+                          {forecastList.map((_, i) => {
+                            const hp = highPoints[i];
+                            const lp = lowPoints[i];
+                            const isYesterday = i === 0 && forecastList[i].date < todayStr;
+                            return (
+                              <g key={i} className={isYesterday ? 'opacity-40' : ''}>
+                                {/* High point */}
+                                <circle 
+                                  cx={hp.x} 
+                                  cy={hp.y} 
+                                  r="2.5" 
+                                  fill="#f59e0b" 
+                                  stroke="var(--bg-base, #171717)" 
+                                  strokeWidth="1.5" 
+                                />
+                                <text 
+                                  x={hp.x} 
+                                  y={hp.y - 5} 
+                                  textAnchor="middle" 
+                                  fontSize="10" 
+                                  fontWeight="700" 
+                                  fill="currentColor"
+                                  className="fill-theme-primary font-mono select-none"
+                                >
+                                  {highTemps[i]}°
+                                </text>
+
+                                {/* Low point */}
+                                <circle 
+                                  cx={lp.x} 
+                                  cy={lp.y} 
+                                  r="2.5" 
+                                  fill="#38bdf8" 
+                                  stroke="var(--bg-base, #171717)" 
+                                  strokeWidth="1.5" 
+                                />
+                                <text 
+                                  x={lp.x} 
+                                  y={lp.y + 13} 
+                                  textAnchor="middle" 
+                                  fontSize="10" 
+                                  fontWeight="700" 
+                                  fill="currentColor"
+                                  className="fill-theme-primary font-mono select-none"
+                                >
+                                  {lowTemps[i]}°
+                                </text>
+                              </g>
+                            );
+                          })}
+                        </svg>
+                      </div>
+
+                      {/* Bottom Section: Nighttime Icon, Condition, Wind & AQI */}
+                      <div className="flex items-center">
+                        {forecastList.map((fc, i) => {
+                          const isYesterday = i === 0 && fc.date < todayStr;
+                          return (
+                            <div 
+                              key={i} 
+                              style={{ width: `${dailyColWidth}px` }} 
+                              className={`flex flex-col items-center text-center shrink-0 ${
+                                isYesterday ? 'opacity-40 grayscale-[50%]' : ''
+                              }`}
                             >
-                              {fc.dayWindDirection} {fc.dayWindLevel}
-                            </span>
-                            <div className="h-4 flex items-center justify-center mt-0.5">
-                              {getAqiPill(fc.aqiText, fc.aqi)}
+                              <div className="flex items-center justify-center">
+                                {getWeatherIcon(fc.nightWeather, 'w-3.5 h-3.5')}
+                              </div>
+                              <span className="text-[10px] text-theme-secondary truncate w-full px-1 mt-0.5 leading-tight">
+                                {fc.nightWeather}
+                              </span>
+                              <span 
+                                className="text-[9px] text-theme-muted truncate w-full px-1 leading-tight mt-0.5"
+                                title={`${fc.dayWindDirection} ${fc.dayWindLevel}`}
+                              >
+                                {fc.dayWindDirection} {fc.dayWindLevel}
+                              </span>
+                              <div className="h-4 flex items-center justify-center mt-0.5">
+                                {getAqiPill(fc.aqiText, fc.aqi)}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
 

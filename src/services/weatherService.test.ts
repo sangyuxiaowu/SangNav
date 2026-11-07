@@ -25,12 +25,18 @@ test('weather refresh distinguishes fresh responses from stale and fallback data
           forecast: Array.from({ length: 15 }, (_, index) => ({
             predictDate: `2026-11-${String(index + 1).padStart(2, '0')}`,
           })),
+          hourly: [
+            { hour: '9', windDir: 'NNE', windlevel: '2' },
+            { hour: '10', windDir: 'N', windlevel: 0 },
+          ],
         },
       },
     }), { headers: { 'Content-Type': 'application/json' } });
 
     const fresh = await fetchWeather({ lat: 28.22, lon: 112.92, forceRefresh: true });
     assert.equal(fresh.fetchStatus, 'fresh');
+    assert.equal(fresh.hourly?.[0].windDir, '北偏东风 2级');
+    assert.equal(fresh.hourly?.[1].windDir, '北风 0级');
 
     values.set(CACHE_KEY, JSON.stringify({
       ...fresh,

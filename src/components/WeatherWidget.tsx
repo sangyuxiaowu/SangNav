@@ -317,6 +317,7 @@ export const WeatherWidget: React.FC<WeatherWidgetProps> = ({
         <div className="inline-flex flex-col items-center gap-2 max-w-full">
           {/* Main Weather Capsule (Compact, symmetrical, unbloated) */}
           <div 
+            data-weather-capsule
             onClick={() => setModalOpen(true)}
             className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-theme-surface hover:bg-theme-surface-hover border border-theme-default shadow-theme-sm cursor-pointer backdrop-blur-md transition-all text-theme-secondary text-xs group"
             title="中国气象局官方天气 · 点击查看详情"
@@ -358,6 +359,7 @@ export const WeatherWidget: React.FC<WeatherWidgetProps> = ({
           {/* Dedicated Subordinate Radar Rain Notice Chip (shown only when rain is forecast) */}
           {weather?.current.rainNotice && (
             <div 
+              data-weather-alert
               onClick={() => setModalOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 hover:bg-blue-500/15 border border-blue-500/20 text-blue-600 dark:text-blue-300 text-[11px] font-medium transition-all cursor-pointer shadow-2xs group animate-in fade-in slide-in-from-top-1 duration-200"
               title="中国气象局短临雷达预报 · 点击查看详情"

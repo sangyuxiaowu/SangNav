@@ -82,6 +82,8 @@ interface SettingsModalProps {
     settings: UserSettings;
   }) => void;
   onResetToDefaults: () => void;
+  weatherSimulationEnabled: boolean;
+  onToggleWeatherSimulation: () => void;
   initialTab?: 'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data' | 'cloud';
 }
 
@@ -96,6 +98,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   links,
   onImportAllData,
   onResetToDefaults,
+  weatherSimulationEnabled,
+  onToggleWeatherSimulation,
   initialTab,
 }) => {
   const [activeTab, setActiveTab] = useState<'appearance' | 'wallpaper' | 'analytics' | 'search' | 'data' | 'cloud'>('appearance');
@@ -671,6 +675,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {/* Wallpaper Quick Entry in Appearance */}
+              <div className="flex items-center justify-between gap-3 p-3.5 rounded-lg bg-theme-base border border-theme-default">
+                <div>
+                  <div className="font-semibold text-theme-primary">天气模拟面板</div>
+                  <div className="text-[11px] text-theme-muted">仅本次演示生效，刷新后恢复实时天气，不保存设置</div>
+                </div>
+                <button type="button" role="switch" aria-label="天气模拟面板" aria-checked={weatherSimulationEnabled}
+                  onClick={onToggleWeatherSimulation}
+                  className={`w-10 h-5 shrink-0 flex items-center rounded-full p-1 transition-colors cursor-pointer ${weatherSimulationEnabled ? 'bg-blue-600 justify-end' : 'bg-theme-default justify-start'}`}>
+                  <span className="w-3.5 h-3.5 rounded-full bg-white shadow-xs" />
+                </button>
+              </div>
+
               <div className="p-3.5 rounded-2xl bg-theme-base border border-theme-default flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500 shrink-0">

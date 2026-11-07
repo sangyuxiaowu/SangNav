@@ -275,6 +275,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
       {/* Primary Input Container */}
       <div className="relative">
         <form
+          data-weather-search
           onSubmit={handleSubmit}
           className={`flex items-center w-full px-4 py-3 rounded-2xl bg-theme-input border transition-all duration-200 backdrop-blur-md shadow-theme-md ${
             isFocused

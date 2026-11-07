@@ -21,6 +21,9 @@ import { fetchWeather, getSameDayCachedWeather } from './services/weatherService
 import { FloatingActions } from './components/FloatingActions';
 import { HeroSection } from './components/HeroSection';
 import { SearchBar } from './components/SearchBar';
+import { WeatherEffects } from './components/WeatherEffects';
+import { WeatherSimulationPanel } from './components/WeatherSimulationPanel';
+import { createSimulatedWeather, weatherWallpaperBackground, WeatherEffectName } from './services/weatherEffects';
 import { QuickDock } from './components/QuickDock';
 import { CategoryNav } from './components/CategoryNav';
 import { LinkGrid } from './components/LinkGrid';
@@ -119,6 +122,15 @@ export default function App() {
   // Weather State
   const [weather, setWeather] = useState<WeatherData | null>(() => getSameDayCachedWeather());
   const [weatherLoading, setWeatherLoading] = useState(() => !getSameDayCachedWeather());
+  const [weatherSimulationEnabled, setWeatherSimulationEnabled] = useState(false);
+  const [simulatedWeather, setSimulatedWeather] = useState<WeatherEffectName | null>(null);
+  const toggleWeatherSimulation = () => {
+    setWeatherSimulationEnabled((enabled) => !enabled);
+    setSimulatedWeather(null);
+  };
+  const displayWeather = weatherSimulationEnabled && simulatedWeather
+    ? createSimulatedWeather(simulatedWeather) : weather;
+  const weatherCondition = displayWeather?.current.condition || displayWeather?.forecast[0]?.dayWeather || '';
 
   // Load weather on mount or manual refresh
   const loadWeather = useCallback(async (forceRefresh = false): Promise<boolean> => {
@@ -568,6 +580,8 @@ export default function App() {
   const bingWallpaperUrl = useBingWallpaper(isBingWallpaper);
   const wallpaperUrl = isBingWallpaper ? bingWallpaperUrl : settings.customWallpaperUrl;
   const hasWallpaper = Boolean(wallpaperUrl && wallpaperUrl.trim());
+  const weatherBackground = !hasWallpaper
+    ? weatherWallpaperBackground(settings.wallpaperPreset, weatherCondition) : undefined;
 
   return (
     <div 
@@ -613,6 +627,10 @@ export default function App() {
         </div>
       )}
 
+      {weatherBackground && <div aria-hidden="true" data-weather-ambient
+        className="fixed inset-0 pointer-events-none z-0 transition-opacity duration-700"
+        style={{ background: weatherBackground }} />}
+
       {/* Secret Navigation Top Floating Badge */}
       {isSecretMode && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -642,12 +660,14 @@ export default function App() {
       }`}>
         {/* Hero Section: Live Clock & Weather Greeting */}
         <HeroSection
-          weather={weather}
-          weatherLoading={weatherLoading}
+          weather={displayWeather}
+          weatherLoading={simulatedWeather && weatherSimulationEnabled ? false : weatherLoading}
           onRefreshWeather={loadWeather}
-          showWeatherInHero={settings.showWeatherInHero}
+          showWeatherInHero={settings.showWeatherInHero || weatherSimulationEnabled}
           onTriggerSecretMode={handleTriggerSecretMode}
         />
+
+        {(settings.showWeatherInHero || weatherSimulationEnabled) && <WeatherEffects condition={weatherCondition} />}
 
         {/* Multi-Engine Search Bar */}
         <SearchBar
@@ -840,12 +860,17 @@ export default function App() {
             links={links}
             onImportAllData={handleImportAllData}
             onResetToDefaults={handleResetToDefaults}
+            weatherSimulationEnabled={weatherSimulationEnabled}
+            onToggleWeatherSimulation={toggleWeatherSimulation}
             initialTab={settingsInitialTab}
           />
         </React.Suspense>
       )}
 
       {/* Secret Pattern Lock Modal */}
+      {weatherSimulationEnabled && <WeatherSimulationPanel selected={simulatedWeather}
+        onSelect={setSimulatedWeather} onClose={toggleWeatherSimulation} />}
+
       <SecretLockModal
         isOpen={isSecretLockModalOpen}
         mode={secretLockMode}
